@@ -1,0 +1,47 @@
+{
+  "fixture_version": "1.0",
+  "scenario_id": "B",
+  "name": "Capacity impossible",
+  "category": "planning",
+  "description": "A task quantity exceeds every enabled truck capacity and must fail prevalidation.",
+  "timezone": "America/Toronto",
+  "planning_horizon": {
+    "start": "2026-06-22T07:00:00-04:00",
+    "end": "2026-06-22T17:00:00-04:00"
+  },
+  "plant_location_id": "PLANT",
+  "locations_ref": "shared_locations.json",
+  "matrix_ref": "shared_matrix.json",
+  "vehicles": [
+    {"vehicle_id": "TRUCK-1", "name": "Truck 1", "capacity": 12, "enabled": true},
+    {"vehicle_id": "TRUCK-2", "name": "Truck 2", "capacity": 10, "enabled": true},
+    {"vehicle_id": "TRUCK-3", "name": "Truck 3", "capacity": 8, "enabled": true}
+  ],
+  "vehicle_shifts": [
+    {"shift_id": "TRUCK-1-20260622", "vehicle_id": "TRUCK-1", "start": "2026-06-22T07:00:00-04:00", "end": "2026-06-22T17:00:00-04:00"},
+    {"shift_id": "TRUCK-2-20260622", "vehicle_id": "TRUCK-2", "start": "2026-06-22T07:00:00-04:00", "end": "2026-06-22T17:00:00-04:00"},
+    {"shift_id": "TRUCK-3-20260622", "vehicle_id": "TRUCK-3", "start": "2026-06-22T07:00:00-04:00", "end": "2026-06-22T17:00:00-04:00"}
+  ],
+  "tasks": [
+    {
+      "task_id": "TASK-CAPACITY-001",
+      "po_number": "PO-CAPACITY-001",
+      "task_type": "PICKUP",
+      "origin_location_id": "SUPPLIER_A",
+      "destination_location_id": "PLANT",
+      "quantity": 13,
+      "ready_at": "2026-06-22T07:00:00-04:00",
+      "due_at": "2026-06-22T15:00:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 2
+    }
+  ],
+  "expected": {
+    "status": "INVALID_INPUT",
+    "solver_call_required": false,
+    "affected_task_ids": ["TASK-CAPACITY-001"],
+    "reason_codes": ["CAPACITY_EXCEEDED"]
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "fixture_version": "1.0",
+  "locations": [
+    {
+      "location_id": "PLANT",
+      "name": "Fixture Manufacturing Plant",
+      "address": "100 Fixture Plant Road, Toronto, ON",
+      "latitude": 43.7000,
+      "longitude": -79.4000
+    },
+    {
+      "location_id": "SUPPLIER_A",
+      "name": "Fixture Supplier A",
+      "address": "200 Supplier Avenue, Vaughan, ON",
+      "latitude": 43.8200,
+      "longitude": -79.5000
+    },
+    {
+      "location_id": "SUPPLIER_B",
+      "name": "Fixture Supplier B",
+      "address": "300 Supplier Street, Mississauga, ON",
+      "latitude": 43.6000,
+      "longitude": -79.6500
+    },
+    {
+      "location_id": "CUSTOMER_A",
+      "name": "Fixture Customer A",
+      "address": "400 Customer Drive, Scarborough, ON",
+      "latitude": 43.7600,
+      "longitude": -79.2200
+    },
+    {
+      "location_id": "CUSTOMER_B",
+      "name": "Fixture Customer B",
+      "address": "500 Customer Lane, Oakville, ON",
+      "latitude": 43.4700,
+      "longitude": -79.6900
+    },
+    {
+      "location_id": "HUB_A",
+      "name": "Fixture Hub A",
+      "address": "600 Hub Court, Brampton, ON",
+      "latitude": 43.7300,
+      "longitude": -79.7600
+    },
+    {
+      "location_id": "HUB_B",
+      "name": "Fixture Hub B",
+      "address": "700 Hub Way, Markham, ON",
+      "latitude": 43.8500,
+      "longitude": -79.3300
+    }
+  ]
+}

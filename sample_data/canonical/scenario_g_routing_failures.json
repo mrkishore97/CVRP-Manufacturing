@@ -1,0 +1,40 @@
+{
+  "fixture_version": "1.0",
+  "scenario_id": "G",
+  "name": "Routing provider failure mapping",
+  "category": "routing_failure",
+  "description": "Mock provider cases verify bounded retries, fail-closed matrix behavior, and stable error codes.",
+  "provider": "GOOGLE_ROUTES",
+  "cases": [
+    {
+      "case_id": "G-AUTH",
+      "provider_behavior": {"http_status": 401, "response_kind": "authentication_error"},
+      "expected": {"error_code": "ROUTING_AUTH_ERROR", "retry": false, "matrix_created": false}
+    },
+    {
+      "case_id": "G-RATE-LIMIT",
+      "provider_behavior": {"http_status": 429, "response_kind": "rate_limited", "repeat_count": 4},
+      "expected": {"error_code": "ROUTING_RATE_LIMIT", "retry": true, "maximum_attempts": 3, "matrix_created": false}
+    },
+    {
+      "case_id": "G-SERVER-ERROR",
+      "provider_behavior": {"http_status": 503, "response_kind": "transient_server_error", "repeat_count": 2},
+      "expected": {"eventual_success_allowed": true, "retry": true, "maximum_attempts": 3}
+    },
+    {
+      "case_id": "G-PARTIAL",
+      "provider_behavior": {"http_status": 200, "response_kind": "missing_matrix_elements"},
+      "expected": {"error_code": "ROUTING_PARTIAL_RESPONSE", "retry": false, "matrix_created": false}
+    },
+    {
+      "case_id": "G-UNREACHABLE",
+      "provider_behavior": {"http_status": 200, "response_kind": "unreachable_required_leg"},
+      "expected": {"error_code": "UNREACHABLE_ROUTE", "retry": false, "matrix_created": false}
+    },
+    {
+      "case_id": "G-TIMEOUT",
+      "provider_behavior": {"http_status": null, "response_kind": "read_timeout"},
+      "expected": {"error_code": "ROUTING_TIMEOUT", "retry": true, "maximum_attempts": 3, "matrix_created": false}
+    }
+  ]
+}

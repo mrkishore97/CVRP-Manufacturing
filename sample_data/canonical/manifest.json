@@ -1,0 +1,16 @@
+{
+  "fixture_version": "1.0",
+  "required_scenarios": ["A", "B", "C", "D", "E", "F", "G", "H"],
+  "shared_locations": "shared_locations.json",
+  "shared_matrix": "shared_matrix.json",
+  "scenarios": [
+    {"id": "A", "file": "scenario_a_feasible_mixed.json", "category": "planning"},
+    {"id": "B", "file": "scenario_b_capacity_impossible.json", "category": "planning"},
+    {"id": "C", "file": "scenario_c_deadline_impossible.json", "category": "planning"},
+    {"id": "D", "file": "scenario_d_collective_shortage.json", "category": "planning"},
+    {"id": "E", "file": "scenario_e_pair_precedence.json", "category": "planning"},
+    {"id": "F", "file": "scenario_f_multiday_shifts.json", "category": "planning"},
+    {"id": "G", "file": "scenario_g_routing_failures.json", "category": "routing_failure"},
+    {"id": "H", "file": "scenario_h_timezone_boundaries.json", "category": "datetime_validation"}
+  ]
+}

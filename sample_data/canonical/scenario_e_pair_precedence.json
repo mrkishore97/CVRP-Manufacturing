@@ -1,0 +1,48 @@
+{
+  "fixture_version": "1.0",
+  "scenario_id": "E",
+  "name": "Pickup-drop pair precedence",
+  "category": "planning",
+  "description": "The pickup and delivery must remain on the same truck and occur in the correct order.",
+  "timezone": "America/Toronto",
+  "planning_horizon": {
+    "start": "2026-06-22T07:00:00-04:00",
+    "end": "2026-06-22T17:00:00-04:00"
+  },
+  "plant_location_id": "PLANT",
+  "locations_ref": "shared_locations.json",
+  "matrix_ref": "shared_matrix.json",
+  "vehicles": [
+    {"vehicle_id": "TRUCK-1", "name": "Truck 1", "capacity": 10, "enabled": true},
+    {"vehicle_id": "TRUCK-2", "name": "Truck 2", "capacity": 10, "enabled": true}
+  ],
+  "vehicle_shifts": [
+    {"shift_id": "TRUCK-1-20260622", "vehicle_id": "TRUCK-1", "start": "2026-06-22T07:00:00-04:00", "end": "2026-06-22T17:00:00-04:00"},
+    {"shift_id": "TRUCK-2-20260622", "vehicle_id": "TRUCK-2", "start": "2026-06-22T07:00:00-04:00", "end": "2026-06-22T17:00:00-04:00"}
+  ],
+  "tasks": [
+    {
+      "task_id": "TASK-PAIR-PRECEDENCE",
+      "po_number": "PO-PAIR-PRECEDENCE",
+      "task_type": "PICKUP_DROP",
+      "origin_location_id": "SUPPLIER_A",
+      "destination_location_id": "CUSTOMER_A",
+      "quantity": 4,
+      "ready_at": "2026-06-22T08:00:00-04:00",
+      "due_at": "2026-06-22T12:00:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 3
+    }
+  ],
+  "expected": {
+    "status": "FEASIBLE",
+    "same_vehicle_required": true,
+    "required_task_stop_order": {
+      "TASK-PAIR-PRECEDENCE": ["SUPPLIER_A", "CUSTOMER_A"]
+    },
+    "maximum_task_load": 4,
+    "result_validation_passes": true
+  }
+}

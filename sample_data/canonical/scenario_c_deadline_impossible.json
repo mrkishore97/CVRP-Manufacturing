@@ -1,0 +1,44 @@
+{
+  "fixture_version": "1.0",
+  "scenario_id": "C",
+  "name": "Deadline individually impossible",
+  "category": "planning",
+  "description": "The earliest possible pickup and return completion is later than the hard due time.",
+  "timezone": "America/Toronto",
+  "planning_horizon": {
+    "start": "2026-06-22T07:00:00-04:00",
+    "end": "2026-06-22T17:00:00-04:00"
+  },
+  "plant_location_id": "PLANT",
+  "locations_ref": "shared_locations.json",
+  "matrix_ref": "shared_matrix.json",
+  "vehicles": [
+    {"vehicle_id": "TRUCK-1", "name": "Truck 1", "capacity": 12, "enabled": true}
+  ],
+  "vehicle_shifts": [
+    {"shift_id": "TRUCK-1-20260622", "vehicle_id": "TRUCK-1", "start": "2026-06-22T07:00:00-04:00", "end": "2026-06-22T17:00:00-04:00"}
+  ],
+  "tasks": [
+    {
+      "task_id": "TASK-DEADLINE-001",
+      "po_number": "PO-DEADLINE-001",
+      "task_type": "PICKUP",
+      "origin_location_id": "SUPPLIER_A",
+      "destination_location_id": "PLANT",
+      "quantity": 4,
+      "ready_at": "2026-06-22T07:00:00-04:00",
+      "due_at": "2026-06-22T07:45:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 10,
+      "delivery_service_minutes": 10,
+      "priority": 3
+    }
+  ],
+  "expected": {
+    "status": "INFEASIBLE",
+    "affected_task_ids": ["TASK-DEADLINE-001"],
+    "reason_codes": ["DEADLINE_IMPOSSIBLE_INDIVIDUALLY"],
+    "earliest_completion": "2026-06-22T08:18:20-04:00",
+    "late_by_seconds": 2000
+  }
+}

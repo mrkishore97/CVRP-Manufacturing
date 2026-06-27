@@ -1,0 +1,90 @@
+{
+  "fixture_version": "1.0",
+  "scenario_id": "D",
+  "name": "Collective fleet-time shortage",
+  "category": "planning",
+  "description": "Four full-capacity drops are feasible individually, but only three can meet an 08:00 deadline with three trucks.",
+  "timezone": "America/Toronto",
+  "planning_horizon": {
+    "start": "2026-06-22T07:00:00-04:00",
+    "end": "2026-06-22T17:00:00-04:00"
+  },
+  "plant_location_id": "PLANT",
+  "locations_ref": "shared_locations.json",
+  "matrix_ref": "shared_matrix.json",
+  "vehicles": [
+    {"vehicle_id": "TRUCK-1", "name": "Truck 1", "capacity": 10, "enabled": true},
+    {"vehicle_id": "TRUCK-2", "name": "Truck 2", "capacity": 10, "enabled": true},
+    {"vehicle_id": "TRUCK-3", "name": "Truck 3", "capacity": 10, "enabled": true}
+  ],
+  "vehicle_shifts": [
+    {"shift_id": "TRUCK-1-20260622", "vehicle_id": "TRUCK-1", "start": "2026-06-22T07:00:00-04:00", "end": "2026-06-22T17:00:00-04:00"},
+    {"shift_id": "TRUCK-2-20260622", "vehicle_id": "TRUCK-2", "start": "2026-06-22T07:00:00-04:00", "end": "2026-06-22T17:00:00-04:00"},
+    {"shift_id": "TRUCK-3-20260622", "vehicle_id": "TRUCK-3", "start": "2026-06-22T07:00:00-04:00", "end": "2026-06-22T17:00:00-04:00"}
+  ],
+  "tasks": [
+    {
+      "task_id": "TASK-SHORT-001",
+      "po_number": "PO-SHORT-001",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "CUSTOMER_A",
+      "quantity": 10,
+      "ready_at": "2026-06-22T07:00:00-04:00",
+      "due_at": "2026-06-22T08:00:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 0,
+      "delivery_service_minutes": 10,
+      "priority": 1
+    },
+    {
+      "task_id": "TASK-SHORT-002",
+      "po_number": "PO-SHORT-002",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "CUSTOMER_B",
+      "quantity": 10,
+      "ready_at": "2026-06-22T07:00:00-04:00",
+      "due_at": "2026-06-22T08:00:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 0,
+      "delivery_service_minutes": 10,
+      "priority": 1
+    },
+    {
+      "task_id": "TASK-SHORT-003",
+      "po_number": "PO-SHORT-003",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "HUB_A",
+      "quantity": 10,
+      "ready_at": "2026-06-22T07:00:00-04:00",
+      "due_at": "2026-06-22T08:00:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 0,
+      "delivery_service_minutes": 10,
+      "priority": 1
+    },
+    {
+      "task_id": "TASK-SHORT-004",
+      "po_number": "PO-SHORT-004",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "HUB_B",
+      "quantity": 10,
+      "ready_at": "2026-06-22T07:00:00-04:00",
+      "due_at": "2026-06-22T08:00:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 0,
+      "delivery_service_minutes": 10,
+      "priority": 1
+    }
+  ],
+  "expected": {
+    "status": "PARTIALLY_FEASIBLE",
+    "all_tasks_individually_feasible": true,
+    "minimum_scheduled_task_count": 3,
+    "minimum_unscheduled_task_count": 1,
+    "reason_codes": ["INSUFFICIENT_COMBINED_FLEET_TIME"]
+  }
+}

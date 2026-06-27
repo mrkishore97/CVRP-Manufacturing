@@ -1,0 +1,123 @@
+{
+  "fixture_version": "1.0",
+  "scenario_id": "A",
+  "name": "Three-truck feasible mixed plan",
+  "category": "planning",
+  "description": "Three trucks complete pickup, drop, and pickup-drop tasks before hard deadlines.",
+  "timezone": "America/Toronto",
+  "planning_horizon": {
+    "start": "2026-06-22T07:00:00-04:00",
+    "end": "2026-06-23T17:00:00-04:00"
+  },
+  "plant_location_id": "PLANT",
+  "locations_ref": "shared_locations.json",
+  "matrix_ref": "shared_matrix.json",
+  "vehicles": [
+    {"vehicle_id": "TRUCK-1", "name": "Truck 1", "capacity": 12, "enabled": true},
+    {"vehicle_id": "TRUCK-2", "name": "Truck 2", "capacity": 10, "enabled": true},
+    {"vehicle_id": "TRUCK-3", "name": "Truck 3", "capacity": 8, "enabled": true}
+  ],
+  "vehicle_shifts": [
+    {"shift_id": "TRUCK-1-20260622", "vehicle_id": "TRUCK-1", "start": "2026-06-22T07:00:00-04:00", "end": "2026-06-22T17:00:00-04:00"},
+    {"shift_id": "TRUCK-2-20260622", "vehicle_id": "TRUCK-2", "start": "2026-06-22T07:00:00-04:00", "end": "2026-06-22T17:00:00-04:00"},
+    {"shift_id": "TRUCK-3-20260622", "vehicle_id": "TRUCK-3", "start": "2026-06-22T07:00:00-04:00", "end": "2026-06-22T17:00:00-04:00"},
+    {"shift_id": "TRUCK-1-20260623", "vehicle_id": "TRUCK-1", "start": "2026-06-23T07:00:00-04:00", "end": "2026-06-23T17:00:00-04:00"},
+    {"shift_id": "TRUCK-2-20260623", "vehicle_id": "TRUCK-2", "start": "2026-06-23T07:00:00-04:00", "end": "2026-06-23T17:00:00-04:00"},
+    {"shift_id": "TRUCK-3-20260623", "vehicle_id": "TRUCK-3", "start": "2026-06-23T07:00:00-04:00", "end": "2026-06-23T17:00:00-04:00"}
+  ],
+  "tasks": [
+    {
+      "task_id": "TASK-PICK-001",
+      "po_number": "PO-PICK-001",
+      "task_type": "PICKUP",
+      "origin_location_id": "SUPPLIER_A",
+      "destination_location_id": "PLANT",
+      "quantity": 4,
+      "ready_at": "2026-06-22T07:00:00-04:00",
+      "due_at": "2026-06-22T12:30:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 2
+    },
+    {
+      "task_id": "TASK-PICK-002",
+      "po_number": "PO-PICK-002",
+      "task_type": "PICKUP",
+      "origin_location_id": "SUPPLIER_B",
+      "destination_location_id": "PLANT",
+      "quantity": 6,
+      "ready_at": "2026-06-22T08:00:00-04:00",
+      "due_at": "2026-06-22T14:30:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 20,
+      "delivery_service_minutes": 15,
+      "priority": 2
+    },
+    {
+      "task_id": "TASK-DROP-001",
+      "po_number": "PO-DROP-001",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "CUSTOMER_A",
+      "quantity": 5,
+      "ready_at": "2026-06-22T07:00:00-04:00",
+      "due_at": "2026-06-22T11:30:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 20,
+      "priority": 3
+    },
+    {
+      "task_id": "TASK-DROP-002",
+      "po_number": "PO-DROP-002",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "CUSTOMER_B",
+      "quantity": 7,
+      "ready_at": "2026-06-22T07:30:00-04:00",
+      "due_at": "2026-06-22T14:00:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 20,
+      "priority": 2
+    },
+    {
+      "task_id": "TASK-PAIR-001",
+      "po_number": "PO-PAIR-001",
+      "task_type": "PICKUP_DROP",
+      "origin_location_id": "SUPPLIER_A",
+      "destination_location_id": "HUB_A",
+      "quantity": 3,
+      "ready_at": "2026-06-22T08:00:00-04:00",
+      "due_at": "2026-06-22T15:00:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 1
+    },
+    {
+      "task_id": "TASK-PAIR-002",
+      "po_number": "PO-PAIR-002",
+      "task_type": "PICKUP_DROP",
+      "origin_location_id": "SUPPLIER_B",
+      "destination_location_id": "HUB_B",
+      "quantity": 8,
+      "ready_at": "2026-06-22T09:00:00-04:00",
+      "due_at": "2026-06-22T16:30:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 20,
+      "delivery_service_minutes": 15,
+      "priority": 3
+    }
+  ],
+  "expected": {
+    "status": "FEASIBLE",
+    "task_count": 6,
+    "scheduled_task_count": 6,
+    "unscheduled_task_count": 0,
+    "required_task_types": ["PICKUP", "DROP", "PICKUP_DROP"],
+    "hard_deadlines_met": true,
+    "result_validation_passes": true
+  }
+}

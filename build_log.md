@@ -1,0 +1,958 @@
+# Manufacturing PO Route Optimizer — Build Log
+
+**Purpose:** Chronological implementation and verification record  
+**Project plan:** `project_plan.md`  
+**Started:** 2026-06-21  
+**Current milestone:** Version 1 baseline complete (`v1.0.0`)
+
+## Logging rules
+
+1. Add an entry during every implementation session before handoff.
+2. Keep entries chronological and append new entries at the end.
+3. Do not mark a check as passed unless it was actually executed.
+4. Record checks not run and the reason.
+5. Include relevant commands or test-suite names so results are reproducible.
+6. Record user-approved requirement or architecture changes.
+7. Record known issues even when they do not block the current milestone.
+8. A milestone is complete only when its gate evidence appears here and its status is updated in `project_plan.md`.
+9. Never include API keys, credentials, private PO data, or sensitive provider responses.
+
+## Entry template
+
+```text
+## YYYY-MM-DD — Build NNN — M# — Short title
+
+### Scope
+
+- Work intended for this build.
+
+### Changes
+
+- File or component: concise description.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| Command or manual check | PASS/FAIL/NOT RUN | Relevant output or reason |
+
+### Decisions and assumptions
+
+- Decisions made or “None.”
+
+### Known issues
+
+- Open issue or “None.”
+
+### Gate status
+
+- Current milestone gate status and remaining items.
+
+### Next action
+
+- Next gated implementation step.
+```
+
+---
+
+## 2026-06-21 — Build 001 — M0 — Project plan approved
+
+### Scope
+
+- Establish the project directory and implementation control documents.
+- Convert the approved application design into milestone gates and verification requirements.
+- Establish the build-log process requested by the project owner.
+
+### Changes
+
+- `project_plan.md`: Added the complete architecture, data contracts, solver design, Google routing strategy, ten implementation milestones, stage gates, canonical tests, risk register, and Version 1 acceptance criteria.
+- `project_plan.md`: Linked milestone completion evidence to this build log.
+- `build_log.md`: Created the append-only build and verification record with a reusable entry template.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| Project plan exists in the new project folder | PASS | File created under `manufacturing_po_route_optimizer/`. |
+| Required plan sections present | PASS | Architecture, domain, routing, optimization, diagnostics, milestones, tests, acceptance criteria, risks, and next step were detected. |
+| Milestone section count | PASS | M0 through M9: 10 milestone sections. |
+| Reference application changed | PASS | No reference-project file was edited during planning. |
+| Application tests | NOT RUN | No application code exists yet. |
+
+### Decisions and assumptions
+
+- The project plan was approved by the project owner on 2026-06-21.
+- Build history will be maintained in this file throughout implementation.
+- M0 remains active until reference behavior notes and canonical acceptance fixtures are created and checked.
+
+### Known issues
+
+- None at the planning-document level.
+- A live Google API smoke test will require a restricted developer key in M3; offline development will use a fake provider and mocked HTTP.
+
+### Gate status
+
+- M0 is in progress.
+- Passed: approved plan and documented working assumptions.
+- Remaining: reference behavior notes, canonical sample fixtures, requirement-to-test traceability check, and M0 gate review.
+
+### Next action
+
+- Create the M0 reference behavior notes and canonical feasible/infeasible sample fixtures, then execute and record the M0 gate review.
+
+---
+
+## 2026-06-21 — Build 002 — M0 — Baseline and acceptance fixtures complete
+
+### Scope
+
+- Complete the remaining M0 deliverables.
+- Document reference behavior and replacement decisions.
+- Create deterministic acceptance fixtures for canonical Scenarios A–H.
+- Map every Version 1 acceptance criterion to milestone evidence.
+- Execute and record the M0 quality gate.
+
+### Changes
+
+- `docs/reference_behavior_notes.md`: Documented the reference workflow, retained concepts, replaced behavior, and implementation risks not to reproduce.
+- `docs/reference_baseline.json`: Captured SHA-256 hashes for the three original reference files so later milestones can verify that the reference project remains unchanged.
+- `docs/requirements_traceability.md`: Mapped AC-01 through AC-20 and each original user need to milestones and planned test evidence.
+- `sample_data/canonical/README.md`: Documented fixture purpose, safety rules, files, and validation command.
+- `sample_data/canonical/manifest.json`: Registered required Scenarios A–H.
+- `sample_data/canonical/shared_locations.json`: Added seven fictional, non-sensitive locations.
+- `sample_data/canonical/shared_matrix.json`: Added deterministic asymmetric road-distance and travel-duration test matrices.
+- `sample_data/canonical/scenario_a_feasible_mixed.json`: Added the three-truck, mixed-task feasible acceptance case.
+- `sample_data/canonical/scenario_b_capacity_impossible.json`: Added the capacity precheck case.
+- `sample_data/canonical/scenario_c_deadline_impossible.json`: Added the individually impossible deadline and calculated earliest-completion case.
+- `sample_data/canonical/scenario_d_collective_shortage.json`: Added the individually feasible but collectively infeasible three-truck case.
+- `sample_data/canonical/scenario_e_pair_precedence.json`: Added same-vehicle pickup-before-delivery expectations.
+- `sample_data/canonical/scenario_f_multiday_shifts.json`: Added one physical truck represented by two dated shifts.
+- `sample_data/canonical/scenario_g_routing_failures.json`: Added authentication, rate-limit, server, partial-response, unreachable, and timeout cases.
+- `sample_data/canonical/scenario_h_timezone_boundaries.json`: Added date-only, aware, invalid-order, and daylight-saving boundary cases.
+- `scripts/validate_m0.py`: Added a standard-library-only validator for documents, traceability, hashes, JSON structure, matrix integrity, scenario semantics, and scenario-specific expectations.
+- `project_plan.md`: Marked M0 completed after all gate checks passed.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| `python scripts/validate_m0.py` | PASS | 672 checks executed; Scenarios A–H loaded; AC-01 through AC-20 found; reference notes present. |
+| `python -m py_compile scripts/validate_m0.py` | PASS | Validator has valid Python syntax. Generated bytecode cache was removed after the check. |
+| JSON syntax and duplicate-key validation | PASS | Manifest, shared data, baseline, and all eight scenarios loaded through the M0 validator. |
+| Matrix integrity | PASS | Square dimensions, nonnegative integers, zero diagonal, complete location mapping, and asymmetry checks passed. |
+| Scenario semantics | PASS | IDs, references, positive quantities, task-type endpoints, aware datetimes, shifts, deadlines, and expectations passed. |
+| Scenario C lower-bound calculation | PASS | Expected earliest completion and 2,000-second lateness reconcile with fixture matrix and service times. |
+| Scenario D individual feasibility | PASS | All four tasks pass individual earliest-completion checks while fixture expectations require a partial three-truck plan. |
+| Requirement-to-test traceability | PASS | Every acceptance criterion AC-01 through AC-20 maps to milestones and evidence. |
+| Reference project baseline | PASS | Current README, application, and requirements SHA-256 hashes match the captured M0 baseline. |
+| M0 deliverables reviewed | PASS | Approved plan, reference notes, canonical fixtures, decision/build record, traceability, and repeatable validator are present. |
+| Application runtime tests | NOT RUN | Application runtime does not exist until M1; no runtime behavior was claimed in M0. |
+
+### Decisions and assumptions
+
+- Canonical solver fixtures use fictional locations and deterministic offline matrices so later tests remain reproducible and incur no Google charges.
+- The shared matrix is intentionally asymmetric to prevent accidental assumptions that road travel is symmetric.
+- Scenario C defines deadline feasibility against completion after service, not arrival alone.
+- Scenario D asserts minimum scheduled/unscheduled counts instead of a specific dropped task because equivalent optimal diagnostic choices may exist.
+- Provider and datetime failure fixtures are contract cases rather than solver scenarios.
+- Fixture version `1.0` is the M0 baseline; contract changes in M2 must update fixture versions and this log when incompatible.
+
+### Known issues
+
+- A live Google API smoke test remains intentionally deferred to M3 and requires a restricted developer key.
+- Canonical fixtures describe the approved contract before Pydantic models exist; M2 may add optional fields but must preserve or explicitly version existing required behavior.
+
+### Gate status
+
+- **M0 COMPLETE.**
+- Approved plan: PASS.
+- Reference behavior notes and immutable hash baseline: PASS.
+- Canonical A–H fixtures: PASS.
+- Requirement-to-test traceability: PASS.
+- Repeatable validation and manual gate review: PASS.
+- No unresolved requirement blocks project scaffolding.
+- M1 remains not started.
+
+### Next action
+
+- Begin M1 by scaffolding the separated backend/frontend packages and quality tooling, then execute the M1 automated and manual gate checks before starting domain implementation.
+
+---
+
+## 2026-06-21 — Build 003 — M1 — Project scaffold and quality foundation complete
+
+### Scope
+
+- Create the separated FastAPI backend and Streamlit frontend package structure.
+- Establish pinned project dependencies and an isolated Python 3.12 environment.
+- Add backend configuration, health endpoint, frontend HTTP client, and graceful connectivity shell.
+- Add an offline fake routing provider for later domain and solver development.
+- Establish formatting, linting, strict typing, tests, startup scripts, and M1 smoke checks.
+- Execute every M1 automated and manual gate check before changing milestone status.
+
+### Changes
+
+- `pyproject.toml`: Added exact direct runtime/development dependency pins, package discovery, pytest, Ruff, mypy, and coverage configuration.
+- `.gitignore`: Added Python, tool-cache, virtual-environment, secret, database, log, and export exclusions.
+- `.env.example`: Added safe runtime, backend, persistence, and placeholder Google settings without credentials.
+- `README.md`: Added architecture boundary, Python 3.12 setup, separate backend/frontend commands, combined startup, configuration, and quality commands.
+- `run_app.ps1`: Added a Windows launcher that starts the backend as a hidden helper, runs Streamlit in the current console, and cleans up the backend on exit.
+- `backend/app/`: Added package boundaries for API, application, domain, diagnostics, optimization, persistence, and routing.
+- `backend/app/config.py`: Added validated environment settings; a Google key is optional and excluded from object representation.
+- `backend/app/logging_config.py`: Added minimal process logging setup.
+- `backend/app/api/main.py`: Added the FastAPI application factory and ASGI app.
+- `backend/app/api/routes/health.py`: Added the versioned `/api/v1/health` endpoint with a strict response model.
+- `backend/app/routing/base.py`: Added provider-neutral location, options, matrix, provider protocol, and stable provider-error contracts.
+- `backend/app/routing/fake.py`: Added deterministic, no-I/O geocoding and matrix behavior with call counters and controlled errors.
+- `frontend/api_client.py`: Added an HTTP-only health client with safe unavailable, HTTP, JSON, and contract errors.
+- `frontend/session_models.py`: Added a frontend-only draft-state placeholder without business logic.
+- `frontend/streamlit_app.py`: Added the M1 shell, backend status, graceful offline warning, and no Google-key requirement.
+- `backend/tests/` and `frontend/tests/`: Added 21 configuration, API, provider, matrix, package-boundary, client-failure, and Streamlit smoke tests.
+- `scripts/smoke_m1.py`: Added process-level startup and health verification for FastAPI and Streamlit with the Google key removed from the test environment.
+- `scripts/validate_m0.py`: Applied the project formatter and safe modernization fixes; all 672 M0 validation checks still pass.
+- `.venv/`: Created the ignored isolated environment and installed the pinned application and development dependencies.
+- `project_plan.md`: Marked M1 completed only after the gate evidence below passed.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| Environment creation and editable install | PASS | Python 3.12.4 virtual environment created; all pinned runtime and development dependencies installed. |
+| `python -m pip check` | PASS | No broken requirements found. |
+| `python -m ruff format --check .` | PASS | 34 Python files already formatted at final check. |
+| `python -m ruff check .` | PASS | All lint checks passed. |
+| `python -m mypy backend frontend` | PASS | Strict typing reported no issues in 32 source files. |
+| `python -m pytest` | PASS | 21 tests passed in 5.32 seconds. |
+| Backend package import test | PASS | Every discovered `backend.app` module imported successfully. |
+| Backend boundary test | PASS | No Streamlit references exist under `backend/app`. |
+| Frontend boundary test | PASS | No OR-Tools, Google implementation, or `backend.app` imports exist in frontend Python files. |
+| FastAPI health integration test | PASS | `/api/v1/health` returned the exact versioned contract without a Google key. |
+| OpenAPI route test | PASS | `/api/v1/health` is present in generated OpenAPI paths. |
+| Fake routing provider tests | PASS | Ordered geocoding, asymmetric matrix, protocol compatibility, call counts, missing configuration, mismatch, and invalid matrices tested. |
+| Frontend API-client failure tests | PASS | Connection refusal, HTTP failure, invalid JSON, incomplete fields, and unhealthy response are controlled. |
+| Streamlit AppTest | PASS | Frontend executes with an unavailable backend and renders the expected warning without an exception. |
+| `python scripts/smoke_m1.py` | PASS | Real FastAPI and Streamlit processes started and passed health probes on ports 8765 and 8766 with `GOOGLE_MAPS_API_KEY` removed. |
+| In-app browser manual check | PASS | Frontend title/status rendered at port 8767; unavailable-backend warnings were visible; no browser console errors were reported. |
+| Smoke-process cleanup | PASS | No listeners remained on ports 8765, 8766, or 8767. |
+| `run_app.ps1` parser check | PASS | PowerShell parser reported no syntax errors. |
+| Secret/generated ignore verification | PASS | Required patterns passed unit validation and real `git check-ignore` evaluation in a temporary repository. |
+| M0 regression | PASS | `python scripts/validate_m0.py` passed all 672 checks after project-wide formatting. |
+
+### Decisions and assumptions
+
+- A single root `pyproject.toml` manages one reproducible environment for both packages, while runtime separation remains HTTP-only. This avoids dependency drift without coupling frontend code to backend implementation.
+- Direct dependencies are exactly pinned. The environment is installed editable so local package imports match development behavior.
+- Python support is initially constrained to 3.12 to match the verified Windows environment and pinned binary dependencies.
+- Pydantic Settings owns backend environment loading; no Google key is required before M3.
+- The fake provider contract is provider-neutral and asynchronous so later Google I/O can implement the same boundary.
+- The M1 error-handler registration hook is intentionally present but behavior remains minimal until the structured API error work in M6.
+- The frontend imports only its own HTTP client; it does not share backend Pydantic models in-process.
+
+### Known issues
+
+- The workspace is not currently initialized as a Git repository. Ignore behavior was therefore validated in a temporary Git repository; this does not block M2.
+- Google geocoding and route-matrix behavior remain intentionally unimplemented until M3.
+- The Streamlit application is intentionally a connectivity shell; fleet and PO workflow pages begin after backend contracts stabilize.
+- A live Google smoke test still requires a restricted developer key in M3.
+
+### Gate status
+
+- **M1 COMPLETE.**
+- Backend/frontend package structure: PASS.
+- Pinned dependency configuration and isolated environment: PASS.
+- `.gitignore`, `.env.example`, base README, and startup script: PASS.
+- Ruff, pytest, and strict mypy foundation: PASS.
+- Backend health endpoint and frontend connectivity behavior: PASS.
+- Test fake routing provider: PASS.
+- Backend contains no Streamlit dependency: PASS.
+- Frontend contains no solver or Google implementation: PASS.
+- Windows PowerShell startup and checks: PASS.
+- M2 remains not started.
+
+### Next action
+
+- Begin M2 by implementing the Pydantic/domain contracts, task-expansion rules, timezone/date-only normalization, import-column mapping, and row-level validation format against canonical Scenarios A, B, and H.
+
+---
+
+## 2026-06-21 — Build 004 — M2 — Domain contracts and validation complete
+
+### Scope
+
+- Implement provider-, transport-, UI-, database-, and solver-independent domain contracts.
+- Normalize all internal datetimes to UTC while preserving explicit local-time confirmation.
+- Define deterministic date-only and daylight-saving behavior.
+- Define CSV/XLSX task-column aliases and row mapping without coupling the domain to file-reading libraries.
+- Expand every user-facing task into balanced internal pickup/delivery nodes.
+- Return stable row/field validation issues and verify canonical Scenarios A, B, and H.
+- Execute the M2 gate and all previous milestone regressions.
+
+### Changes
+
+- `backend/app/domain/enums.py`: Added task, deadline, geocode, routing, plan, stop, severity, and stable validation-code enumerations.
+- `backend/app/domain/models.py`: Added immutable Pydantic contracts for location, vehicle, vehicle shift, planning horizon, task, matrix element issue, routing matrix, and planning request.
+- `backend/app/domain/results.py`: Added validation issue/result and public plan stop, route, diagnostic, and plan-result contracts.
+- `backend/app/domain/time_normalization.py`: Added IANA timezone validation, strict naive-time localization, UTC normalization, date-only shift-boundary handling, and ambiguous/nonexistent DST rejection.
+- `backend/app/domain/import_contract.py`: Added canonical task columns, case/spacing normalization, human-friendly aliases, task/due-event value aliases, defaults, unknown-column reporting, and duplicate-column rejection.
+- `backend/app/domain/validation.py`: Added collection parsing, datetime normalization, row-level errors/warnings, duplicate handling, task endpoint rules, capacity precheck, horizon checks, matrix checks, normalized request creation, and business-readable local/UTC payload output.
+- `backend/app/domain/__init__.py`: Exported the stable M2 public contracts and validation entry points.
+- `backend/app/optimization/task_expander.py`: Added deterministic pickup/delivery node expansion, internal load deltas, plant-node flags, service seconds, readiness, and completion-deadline attachment.
+- `backend/app/optimization/__init__.py`: Exported task-expansion contracts and functions.
+- `backend/app/routing/base.py`: Reused the canonical domain routing-matrix model while preserving the M1 `RouteMatrix` compatibility alias and provider-neutral interface.
+- `docs/import_contract.md`: Documented canonical CSV/XLSX columns, accepted aliases, datetime behavior, duplicate PO policy, quantity precision, and internal load signs.
+- `backend/tests/fixtures/canonical.py`: Added canonical fixture embedding for M2 tests.
+- `backend/tests/unit/domain/`: Added 33 pure-domain tests covering validation, time normalization, import mapping, task expansion, contract JSON round-trips, and infrastructure boundaries.
+- `scripts/review_m2_payloads.py`: Added a repeatable business-readable Scenario A preview and Scenario B diagnostic review.
+- `backend/tests/unit/test_fake_routing_provider.py`: Updated the negative-matrix assertion to the centralized Pydantic contract wording; rejection behavior is unchanged.
+- `README.md`: Updated project status to M2 complete.
+- `project_plan.md`: Marked M2 completed only after the gate evidence below passed.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| `python -m ruff format --check .` | PASS | 51 Python files already formatted. |
+| `python -m ruff check .` | PASS | All lint checks passed. |
+| `python -m mypy backend frontend` | PASS | Strict typing reported no issues in 48 source files. |
+| `python -m pytest backend/tests/unit/domain -q` | PASS | 33 pure-domain tests passed in 0.45 seconds. |
+| Domain infrastructure-boundary tests | PASS | Domain/task-expansion code and domain tests contain no FastAPI, Streamlit, SQLite, HTTP client, requests, or urllib imports. |
+| `python -m pytest -q` | PASS | All 54 backend/frontend tests passed in 4.12 seconds. |
+| Valid pickup/drop/pickup-drop contracts | PASS | Canonical Scenario A normalizes all three task types with positive quantities and aware UTC datetimes. |
+| Missing address and type/location mismatch | PASS | Both produce blocking row/field issues; mismatch uses `TASK_TYPE_LOCATION_MISMATCH`. |
+| Duplicate task and PO handling | PASS | Duplicate task ID is a blocking row error; duplicate PO is allowed with a row warning. |
+| Quantity validation | PASS | Zero/negative values rejected; positive values with up to three decimal places accepted; greater precision rejected. |
+| Ready/due ordering | PASS | `ready_at > due_at` returns stable `READY_AFTER_DUE`. |
+| Date-only normalization | PASS | Ready date uses earliest enabled shift start; due date uses latest enabled shift end; both produce explicit warnings. |
+| DST boundaries | PASS | Canonical Scenario H aware conversion passed; ambiguous and nonexistent Toronto local times were rejected with stable codes. |
+| JSON public-contract round-trip | PASS | Location, vehicle, shift, task, matrix, horizon, request, validation, stop, route, diagnostic, and plan result round-tripped. |
+| Task expansion | PASS | All task types produce same-task pickup/delivery pairs with equal opposite internal loads, correct plant-node flags, service seconds, and selected completion deadline. |
+| `python scripts/review_m2_payloads.py` | PASS | Six Scenario A lines displayed positive quantity, local ready/due, and explicit deadline event; Scenario B displayed row/task-specific capacity diagnostics. |
+| `python scripts/validate_m0.py` | PASS | All 672 M0 checks still pass. |
+| `python scripts/smoke_m1.py` | PASS | FastAPI and Streamlit process health regression passed without a Google key; helper processes cleaned up. |
+| `python -m pip check` | PASS | No broken requirements found. |
+
+### Decisions and assumptions
+
+- `task_id` is unique and identifies one movement line. A repeated `task_id` is an error.
+- `po_number` may repeat because one PO can contain multiple movement lines. Later repeated rows receive a warning, not an error.
+- User-facing quantities and vehicle capacities are positive decimals with at most three decimal places. Signed demand exists only inside expanded solver nodes.
+- Tasks reference location IDs; addresses belong to the location table so repeated addresses can be geocoded and deduplicated once in M3.
+- All domain datetimes are aware and stored in UTC. The selected plant timezone is used for parsing naive input and generating confirmation fields.
+- Date-only ready values normalize to the earliest enabled truck-shift start on that local date. Date-only due values normalize to the latest enabled truck-shift end on that date. No matching shift is a blocking error.
+- Ambiguous or nonexistent local times are rejected rather than guessed. Users must supply a valid explicit datetime/offset.
+- Every business task expands to one pickup and one delivery node. A plant-origin drop receives an internal plant pickup node; a plant-destination pickup receives an internal plant delivery node.
+- The hard deadline attaches to completion of the selected event. M5 will convert that completion bound to the corresponding latest service-arrival constraint.
+- `due_event` defaults to `DELIVERY_COMPLETE`, matching the approved inbound-arrival/final-drop default; pickup completion remains explicitly selectable.
+- Unknown import columns are ignored with warnings. Multiple source headers mapping to one canonical field are blocking because the intended value is ambiguous.
+
+### Known issues
+
+- CSV/XLSX file byte parsing is intentionally not in the domain layer; M7 adapters will convert files to row dictionaries before using this contract.
+- Google address resolution and road matrices remain intentionally unimplemented until M3.
+- Vehicle-tag compatibility is represented in contracts but its feasibility precheck is implemented with solver eligibility work in M4/M5.
+- Aggregate route-result consistency is represented but independent route-result validation is implemented in M4.
+
+### Gate status
+
+- **M2 COMPLETE.**
+- Location, task, vehicle, shift, matrix, request, and result contracts: PASS.
+- Task-expansion rules: PASS.
+- Timezone, date-only, and DST normalization: PASS.
+- CSV/XLSX column-mapping contract: PASS.
+- Row-level validation result format: PASS.
+- Canonical and error-path checks: PASS.
+- Business-readable manual review: PASS.
+- Domain tests are infrastructure-independent: PASS.
+- Node expansion and completion-deadline semantics are explicitly documented with no open ambiguity.
+- M3 remains not started.
+
+### Next action
+
+- Begin M3 by implementing the Google geocoding/Routes provider, bounded retries, batching and response validation, persistent versioned matrix cache, matrix-request estimator, and mocked HTTP tests against canonical Scenario G.
+
+---
+
+## 2026-06-21 — Build 005 — M3 — Offline implementation complete; live gate pending
+
+### Scope
+
+- Implement the Google Geocoding and Routes Compute Route Matrix adapters.
+- Add bounded retries, exponential backoff with jitter, batching, strict response assembly, and stable failure codes.
+- Add a persistent versioned SQLite matrix cache and deterministic secret-free cache keys.
+- Add matrix request estimation and provider construction from validated backend settings.
+- Verify all Scenario G and cache behavior through mocked HTTP before any live Google call.
+- Prepare a restricted live smoke script that never prints secrets or full provider responses.
+
+### Changes
+
+- `.env.example`: Added documented Google endpoints, retry/timeout limits, matrix batching limits, cache TTL, and departure-bucket settings.
+- `backend/app/config.py`: Added validated M3 routing, quota-safe batching, timeout, retry, and cache settings; the API key remains excluded from representation.
+- `backend/app/routing/base.py`: Added provider name and optional aware departure time to the provider-neutral contract.
+- `backend/app/routing/errors.py`: Added stable routing error codes and a reusable secret-redaction helper.
+- `backend/app/routing/estimator.py`: Added rectangular batch planning and pre-call matrix element/request estimates, including the lower traffic-aware-optimal element limit.
+- `backend/app/routing/google.py`: Added duplicate-address geocoding, Google status mapping, bounded HTTP/API retries, request headers/field mask, batch request generation, complete matrix reassembly, asymmetric distance/duration preservation, duration rounding, unreachable detection, and fail-closed response validation.
+- `backend/app/routing/factory.py`: Added production Google provider construction from backend settings with explicit missing-key failure.
+- `backend/app/routing/fake.py`: Added stable provider name for cache-key compatibility.
+- `backend/app/routing/__init__.py`: Exported M3 provider, errors, estimator, limits, batching, factory, and redaction contracts.
+- `backend/app/persistence/database.py`: Added short-lived transactional SQLite connection handling.
+- `backend/app/persistence/matrix_cache.py`: Added versioned cache schema, expiry and corrupt-payload invalidation, atomic upsert, expiry cleanup, departure bucketing, and SHA-256 cache keys over ordered coordinates/options without credentials.
+- `backend/app/application/routing_service.py`: Added cache miss/hit/refresh orchestration and cache metadata result.
+- `scripts/live_smoke_m3.py`: Added a restricted two-public-address geocode and 2x2 road-matrix smoke test with summary-only output.
+- `docs/google_api_setup.md`: Documented required APIs, key restrictions, local secret storage, live command, production separation, and official Google references.
+- `backend/tests/unit/routing/` and `backend/tests/integration/routing/`: Added 29 warning-free estimator, batching, mocked Google, retry, failure, redaction, cache, schema, expiry, and HTTP/cache integration tests.
+- Existing configuration and API tests now disable `.env` loading explicitly so developer credentials cannot affect assertions.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| Google credential presence check | PASS | `.env` and a nonempty `GOOGLE_MAPS_API_KEY` were detected without printing the value. |
+| Official API contract review | PASS | Google Routes setup/Compute Route Matrix, Geocoding requests, limits, statuses, and security guidance reviewed. |
+| `python -m ruff check .` | PASS | All lint checks passed. |
+| `python -m mypy backend frontend` | PASS | Strict typing reported no issues in 61 source files. |
+| Focused M3 suite | PASS | 29 routing/cache tests passed without warnings. |
+| Full suite | PASS | All 83 backend/frontend tests passed in 4.63 seconds. |
+| Geocoding success and deduplication | PASS | Equivalent addresses generated one mocked HTTP call and results preserved input order. |
+| Matrix success/asymmetry | PASS | Mocked Google road distances and durations remained asymmetric and correctly ordered. |
+| HTTP cache integration | PASS | First matrix request called mocked Google once; second identical request was a SQLite cache hit with no second HTTP call. |
+| Routing-option and expiry invalidation | PASS | Changed preference produced a new key; expired entries were deleted and recomputed. |
+| Batch reassembly | PASS | Small configured limits forced nine requests and reconstructed a complete ordered 5x5 matrix. |
+| Retry behavior | PASS | HTTP 429/503, API quota status, and timeout retries were bounded with expected backoff attempts. |
+| Authentication behavior | PASS | HTTP 403 failed on the first attempt with `ROUTING_AUTH_ERROR`. |
+| Malformed/partial/unreachable behavior | PASS | Invalid JSON, wrong shape, missing elements, duplicate indexes, malformed geocodes, and unreachable routes failed closed. |
+| Secret redaction | PASS | Key absent from provider representation, stable exception text, logs, cache keys, and suppressed request exception traceback. |
+| Canonical Scenario G alignment | PASS | Every fixture error code is represented by the routing error taxonomy. |
+| SQLite cache safety | PASS | Schema mismatch, expiry, and corrupt payload all became safe cache misses; no invalid matrix was returned. |
+| `python scripts/validate_m0.py` | PASS | All 672 M0 checks still pass. |
+| `python scripts/smoke_m1.py` | PASS | FastAPI/Streamlit process regression passed and helper listeners were cleaned up. |
+| `python -m pip check` | PASS | No broken requirements found. |
+| `python scripts/live_smoke_m3.py` | NOT RUN | Deliberately withheld pending rotation of a credential exposed by an environment-isolation test failure. |
+
+### Decisions and assumptions
+
+- New work uses Geocoding API and Routes API `computeRouteMatrix`; the legacy Distance Matrix API is never called.
+- Geocoding deduplicates normalized addresses within a request and preserves caller order.
+- Matrix locations must have unique IDs; callers deduplicate physical locations before requesting a matrix.
+- Production matrix behavior is fail-closed. There is no geodesic, straight-line, partial-matrix, or stale-incompatible fallback.
+- Default batch limits are conservatively configurable at 25 origins, 25 destinations, and 625 elements; traffic-aware-optimal requests use a maximum of 100 elements.
+- Fractional Google protobuf durations round upward to whole seconds so planning does not understate travel time.
+- HTTP 401/403 and invalid requests do not retry. Rate limits, timeouts, network failures, and server errors use bounded retries.
+- Cache keys include schema version, provider, ordered place/coordinate identity, routing options, and departure bucket. They never contain addresses or credentials.
+- Complete validated matrices only are cached. Cache corruption, expiry, and schema mismatch are misses.
+- The live smoke uses two public Toronto-area addresses and prints only counts/pass criteria.
+
+### Known issues
+
+- During the first full-suite run, an older configuration test loaded the local `.env` and its failed assertion echoed the development credential in local test output. The test was corrected to disable `.env` loading, and traceback redaction tests were added. The exposed development key must be rotated before any live call.
+- The live Google geocoding and 2x2 Routes matrix smoke check remains pending that rotated restricted key.
+- Persistent geocode caching is not part of the M3 gate; duplicate addresses are deduplicated per request. Matrix caching is persistent and versioned.
+
+### Gate status
+
+- **M3 IN PROGRESS.**
+- Provider interface and fake provider: PASS.
+- Google geocoding adapter: PASS offline mocked contract.
+- Google Routes matrix adapter: PASS offline mocked contract.
+- Batching, retries, validation, and error mapping: PASS.
+- Versioned SQLite matrix cache and estimator: PASS.
+- Mocked suite and all regressions: PASS.
+- No silent straight-line fallback: PASS.
+- Restricted live Google smoke: PENDING ROTATED KEY.
+- M3 must not be marked complete until the live smoke passes with the rotated key.
+
+### Next action
+
+- Rotate the exposed development key in Google Cloud, update the ignored `.env`, and run `python scripts/live_smoke_m3.py`. If it passes, rerun the complete gate, mark M3 complete, and move the pointer to M4.
+
+---
+
+## 2026-06-21 — Build 006 — M3 — Live API authorization check
+
+### Scope
+
+- Execute the restricted live M3 smoke test using the configured development key after explicit user approval.
+- Test Routes independently if the combined Geocoding and Routes smoke test fails.
+- Record only sanitized provider results; do not print the credential, coordinates, or full responses.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| `python scripts/live_smoke_m3.py` | FAIL | Google received the request, but Geocoding returned `REQUEST_DENIED` / `ROUTING_AUTH_ERROR`. |
+| Sanitized Geocoding diagnostic | FAIL | Google reported that the key is not authorized for the requested API/service and directed the caller to check enabled APIs and key API restrictions. |
+| Independent Routes `computeRouteMatrix` request | PASS | The same key returned HTTP 200 for a fixed-coordinate route-matrix request. |
+| Credential output safety | PASS | No credential value was printed by the smoke test or diagnostics. |
+
+### Conclusion
+
+- The caller IP restriction is not the current blocker because the Routes API accepted a request from the same process, network, public IP, and key.
+- The key currently authorizes Routes API but not Geocoding API. Enable Geocoding API in the key's Google Cloud project and include **Geocoding API** under the key's API restrictions.
+- Allow a few minutes for Google Cloud configuration propagation, then rerun the combined live smoke.
+
+### Gate status
+
+- **M3 IN PROGRESS.**
+- Live Routes API check: PASS.
+- Live Geocoding API check: BLOCKED BY GOOGLE CLOUD KEY/API CONFIGURATION.
+- Combined two-address Geocoding and 2x2 matrix gate: NOT PASSED.
+
+### Next action
+
+- In Google Cloud Console, enable **Geocoding API** and ensure the development key's API restriction list contains both **Routes API** and **Geocoding API**. No new key is required for this configuration correction. Rerun `python scripts/live_smoke_m3.py` after the change propagates.
+
+---
+
+## 2026-06-21 — Build 007 — M3 — Live gate passed and milestone complete
+
+### Scope
+
+- Recheck the combined live Google Geocoding and Routes matrix flow after Geocoding API authorization was enabled.
+- Diagnose and support Google's valid omission of protobuf default-valued `distanceMeters` on zero-distance matrix diagonal elements.
+- Rerun the complete M3 quality and regression gate.
+
+### Changes
+
+- `backend/app/routing/google.py`: Treat an omitted `distanceMeters` as zero only when the element is on the true global matrix diagonal, has zero duration, and has already passed route-condition validation.
+- `backend/tests/integration/routing/test_google_provider.py`: Added regression coverage for Google's omitted diagonal zero distance and confirmed the same omission remains invalid off the diagonal.
+- `README.md` and `project_plan.md`: Marked M3 complete and identified M4 as the next milestone.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| Live Geocoding API | PASS | Two public Toronto-area addresses resolved without logging addresses, coordinates, responses, or credentials. |
+| Live Routes `computeRouteMatrix` | PASS | A complete 2x2 matrix returned positive off-diagonal road distance and duration. |
+| `python scripts/live_smoke_m3.py` | PASS | Combined restricted live M3 smoke passed after Google configuration propagation. |
+| Focused Google provider suite | PASS | 21 tests passed, including valid omitted diagonal zero distance and invalid off-diagonal omission. |
+| `python -m ruff check .` | PASS | All checks passed. |
+| `python -m mypy backend frontend` | PASS | No issues in 61 source files. |
+| Full test suite | PASS | 85 tests passed in 5.46 seconds. |
+| `python scripts/validate_m0.py` | PASS | All 672 M0 checks passed. |
+| `python scripts/smoke_m1.py` | PASS | FastAPI and Streamlit process regression passed without exposing or requiring the Google key. |
+| `python -m pip check` | PASS | No broken requirements found. |
+| Credential output safety | PASS | The key was not printed by live checks or diagnostics. |
+
+### Gate status
+
+- **M3 COMPLETE.**
+- Provider interface and fake provider: PASS.
+- Live Google Geocoding adapter: PASS.
+- Live Google Routes matrix adapter: PASS.
+- Batching, bounded retries, strict validation, and stable errors: PASS.
+- Versioned SQLite matrix cache and request estimator: PASS.
+- Secret redaction and backend-only credential boundary: PASS.
+- No silent straight-line production fallback: PASS.
+- Complete offline, live, and regression gates: PASS.
+
+### Next action
+
+- Begin M4 by implementing the OR-Tools capacity and pickup-delivery solver with deterministic settings and an independent result validator.
+
+---
+
+## 2026-06-22 — Build 008 — M4 — Core solver and validator complete
+
+### Scope
+
+- Implement the backend-only OR-Tools core solver for capacity and pickup-delivery routing.
+- Keep solver implementation separate from frontend code and behind an application-service boundary.
+- Add independent plan-result validation so invalid extracted routes are not returned as successful plans.
+- Verify M4 acceptance behavior with deterministic fake/offline matrices.
+
+### Changes
+
+- `backend/app/optimization/solver.py`: Added `OrToolsCapacitySolver` with integer load units, enabled-shift filtering, compatible-vehicle capacity prechecks, same-vehicle pickup/delivery constraints, pickup-before-delivery ordering, capacity and route-duration dimensions, plant/configured depot starts and ends, fixed vehicle costs, deterministic first-solution settings, solution extraction, and validation-before-return.
+- `backend/app/optimization/validator.py`: Added independent route-result validation for task uniqueness, pair order, same-route pairing, nonnegative/within-capacity loads, readiness waits, shift bounds, depot rules, route totals, plan totals, due/slack consistency, and corrupted-result detection.
+- `backend/app/application/planning_service.py`: Added a thin backend application-service boundary so API/UI code can call planning without importing OR-Tools details.
+- `backend/app/optimization/__init__.py`: Kept the package initializer lightweight so task expansion and M2 utilities do not eagerly load OR-Tools.
+- `backend/tests/unit/optimization/test_solver_m4.py`: Added M4 regression tests for one pickup, one plant-origin drop, pickup-drop pair precedence, mixed tasks with three trucks available, load bounds, exact-capacity feasibility, over-capacity rejection, depot/totals consistency, deterministic repeated runs, and validator rejection of corrupted capacity state.
+- `README.md` and `project_plan.md`: Marked M4 complete and identified M5 as the next milestone.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| Focused M4 solver suite | PASS | `python -m pytest backend/tests/unit/optimization -q`: 10 tests passed. |
+| `python -m ruff check .` | PASS | All checks passed. |
+| `python -m mypy backend frontend` | PASS | No issues in 66 source files. |
+| Full test suite | PASS | `python -m pytest -q`: 95 tests passed in 5.40 seconds. |
+| `python scripts/validate_m0.py` | PASS | All 672 M0 checks passed. |
+| `python scripts/smoke_m1.py` | PASS | FastAPI and Streamlit process regression passed without requiring a Google key. |
+| `python scripts/review_m2_payloads.py` | PASS | Scenario A payload and Scenario B capacity diagnostic remained correct; OR-Tools is no longer eagerly loaded by this review path. |
+| `python -m pip check` | PASS | No broken requirements found. |
+
+### Decisions and assumptions
+
+- M4 intentionally enforces capacity, pairing, pickup-before-delivery, depot behavior, and route-duration limits only. Hard ready/due time-window feasibility and user-facing infeasibility diagnostics remain in M5, matching the approved milestone split.
+- User-facing load decimals are converted to integer thousandths inside the solver to avoid floating-point capacity drift.
+- The optimization package initializer stays lightweight; code that needs OR-Tools imports `backend.app.optimization.solver` directly.
+
+### Known issues
+
+- Pytest reports third-party OR-Tools/SWIG deprecation warnings during import. These are non-blocking library warnings and do not affect route behavior.
+
+### Gate status
+
+- **M4 COMPLETE.**
+- Task-to-node expansion reused and covered: PASS.
+- OR-Tools routing model with capacity dimension: PASS.
+- Pickup/delivery same-vehicle and order constraints: PASS.
+- Plant/configured depot start/end behavior: PASS.
+- Basic deterministic objective/settings: PASS.
+- Independent result validator: PASS.
+- Core solver regression gate: PASS.
+
+### Next action
+
+- Begin M5 by adding time-window dimensions, hard ready/deadline enforcement, and infeasibility diagnostics for late or impossible pickups.
+
+---
+
+## 2026-06-22 — Build 009 — M5 — Time windows and diagnostics complete
+
+### Scope
+
+- Upgrade the backend solver from structural CVRP/PDP constraints to hard ready-time, deadline, and shift-safe routing.
+- Add static earliest-completion diagnostics for individually impossible deadlines.
+- Add relaxed diagnostic solving that can safely return partial feasible plans when the full workload is collectively infeasible.
+- Verify multi-day vehicle-shift behavior and ensure returned strict/partial plans contain no late task.
+
+### Changes
+
+- `backend/app/optimization/solver.py`: Added a hard OR-Tools `Time` dimension with service-time transit, waiting slack, per-shift start/end bounds, per-node ready lower bounds, and completion-deadline upper bounds based on `due_at - service_seconds`.
+- `backend/app/optimization/solver.py`: Added individual earliest-completion prechecks that return `DEADLINE_IMPOSSIBLE_INDIVIDUALLY` with estimated completion and `late_by_seconds`, plus `NO_COMPATIBLE_SHIFT_TIME` when a task cannot fit inside any compatible shift.
+- `backend/app/optimization/solver.py`: Added relaxed diagnostic solving with paired-node disjunctions so pickup/delivery nodes are dropped together; unscheduled feasible tasks receive `INSUFFICIENT_COMBINED_FLEET_TIME`.
+- `backend/app/optimization/solver.py`: Added multi-day shift-safe extraction from the time dimension and distinct timeout/infeasibility status mapping.
+- `backend/app/optimization/validator.py`: Upgraded independent validation for both `FEASIBLE` and `PARTIALLY_FEASIBLE` plans, including task partitioning, hard-deadline slack, shift bounds, readiness waits, pair order, same-route pairing, load, and totals.
+- `backend/tests/unit/optimization/test_solver_m5.py`: Added M5 regression coverage for waiting before readiness, exact deadline boundary, one-second deadline miss, service-included completion, shift-end infeasibility, next-day compatible assignment, no post-due reassignment, physical-truck multi-day shifts, Scenario C diagnostics, Scenario D partial plans, paired-node dropping, and timeout status mapping.
+- `README.md` and `project_plan.md`: Marked M5 complete and identified M6 as the next milestone.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| Focused optimization suite | PASS | `python -m pytest backend/tests/unit/optimization -q`: 22 tests passed. |
+| `python -m ruff check .` | PASS | All checks passed. |
+| `python -m mypy backend frontend` | PASS | No issues in 67 source files. |
+| Full test suite | PASS | `python -m pytest -q`: 107 tests passed in 5.17 seconds. |
+| `python scripts/validate_m0.py` | PASS | All 672 M0 checks passed. |
+| `python scripts/smoke_m1.py` | PASS | FastAPI and Streamlit process regression passed without requiring a Google key. |
+| `python scripts/review_m2_payloads.py` | PASS | Scenario A payload and Scenario B capacity diagnostic remained correct. |
+| `python -m pip check` | PASS | No broken requirements found. |
+
+### Decisions and assumptions
+
+- A hard deadline is enforced against completion/departure from the selected due node, not arrival. Internally the solver applies `latest_service_start = due_at - service_seconds`.
+- Strict solve keeps all tasks mandatory. If strict solve is infeasible and does not time out, a relaxed diagnostic solve allows paired task nodes to be dropped together while preserving capacity, precedence, shift, and hard deadline safety for returned routes.
+- A partial diagnostic result is valid only when scheduled and unscheduled task IDs partition the request and all returned scheduled stops pass independent validation.
+- M5 remains backend-only; no deadline logic was added to the frontend.
+
+### Known issues
+
+- Pytest still reports third-party OR-Tools/SWIG deprecation warnings during import. These are non-blocking library warnings and do not affect route behavior.
+
+### Gate status
+
+- **M5 COMPLETE.**
+- Time dimension with service and waiting: PASS.
+- Ready-time and completion-deadline enforcement: PASS.
+- Multi-day vehicle-shift behavior: PASS.
+- Route-duration and shift-end safety: PASS.
+- Static earliest-completion diagnostics: PASS.
+- Strict solve plus relaxed partial diagnostic solve: PASS.
+- Distinct timeout/infeasibility status handling: PASS.
+- Returned strict and partial plans independently validated: PASS.
+
+### Next action
+
+- Begin M6 by exposing the validated planning workflow through versioned FastAPI endpoints and application-service dependency injection.
+
+---
+
+## 2026-06-22 — Build 010 — M6 — FastAPI application service complete
+
+### Scope
+
+- Expose the validated backend workflow through versioned FastAPI endpoints without requiring Streamlit.
+- Add dependency injection for routing providers, routing service, planning service, matrix cache, and local repositories.
+- Add structured API errors, request IDs, OpenAPI coverage, request-size/row-count limits, and SQLite scenario/plan persistence.
+- Verify success, expected failure, unexpected failure, persistence, rollback, concurrent reads, and OpenAPI behavior.
+
+### Changes
+
+- `backend/app/api/contracts.py`: Added versioned API request/response contracts for geocoding, matrix calculation, validation, solve, scenario retrieval, plan retrieval, export, and structured error envelopes.
+- `backend/app/api/middleware.py`: Added request-ID attachment/echoing and coarse body-size enforcement using `X-Request-ID` and `X-Request-ID` response headers.
+- `backend/app/api/error_handlers.py`: Added controlled handlers for API errors, provider errors, request validation errors, HTTP errors, and unexpected backend errors without traceback/secret leakage.
+- `backend/app/api/dependencies.py`: Added dependency providers for database, scenario repository, plan repository, routing provider, matrix cache, routing service, and planning service.
+- `backend/app/api/routes/routing.py`: Added `POST /api/v1/locations/geocode` and `POST /api/v1/matrices/compute`.
+- `backend/app/api/routes/plans.py`: Added `POST /api/v1/plans/validate`, `POST /api/v1/plans/solve`, `GET /api/v1/plans/{plan_id}`, and `GET /api/v1/plans/{plan_id}/export`.
+- `backend/app/api/routes/scenarios.py`: Added `POST /api/v1/scenarios`, `PUT /api/v1/scenarios/{scenario_id}`, and `GET /api/v1/scenarios/{scenario_id}`.
+- `backend/app/persistence/scenario_repository.py`: Added SQLite scenario and plan repositories with atomic writes and validated `PlanResult` retrieval.
+- `backend/app/config.py`: Added solver time-limit and API request/row-count limit settings.
+- `backend/tests/integration/test_m6_api.py`: Added M6 endpoint workflow, structured error, request-ID, persistence, rollback, concurrent-read, body-limit, and OpenAPI contract tests.
+- `README.md` and `project_plan.md`: Marked M6 complete and identified M7 as the next milestone.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| Focused M6 API suite | PASS | `python -m pytest backend/tests/integration/test_m6_api.py -q`: 9 tests passed. |
+| Focused API/persistence lint | PASS | `python -m ruff check backend/app/api backend/app/persistence backend/tests/integration/test_m6_api.py`: all checks passed. |
+| Focused API/persistence type check | PASS | `python -m mypy backend/app/api backend/app/persistence backend/tests/integration/test_m6_api.py`: no issues in 16 source files. |
+| `python -m ruff check .` | PASS | All checks passed. |
+| `python -m mypy backend frontend` | PASS | No issues in 74 source files. |
+| Full test suite | PASS | `python -m pytest -q`: 116 tests passed in 6.28 seconds. |
+| `python scripts/validate_m0.py` | PASS | All 672 M0 checks passed. |
+| `python scripts/smoke_m1.py` | PASS | FastAPI and Streamlit process regression passed without requiring a Google key. |
+| `python scripts/review_m2_payloads.py` | PASS | Scenario A payload and Scenario B capacity diagnostic remained correct. |
+| `python -m pip check` | PASS | No broken requirements found. |
+
+### Decisions and assumptions
+
+- `POST /api/v1/plans/validate` returns validation results with HTTP 200 so the frontend can preview row issues.
+- `POST /api/v1/plans/solve` returns HTTP 422 for invalid payloads and persists successful solver results, including infeasible/partial `PlanResult` statuses produced by the solver.
+- `GET /api/v1/plans/{plan_id}/export` returns JSON route/diagnostic rows in M6. CSV/XLSX file generation remains in M8.
+- Geocode and matrix endpoints use the routing-provider abstraction; tests inject the fake provider and production uses the configured Google provider.
+- Repository reads/writes use short-lived SQLite connections, and transaction rollback remains centralized in `SQLiteDatabase`.
+
+### Known issues
+
+- Pytest still reports third-party OR-Tools/SWIG deprecation warnings during import. These are non-blocking library warnings and do not affect API behavior.
+
+### Gate status
+
+- **M6 COMPLETE.**
+- Versioned endpoints and application orchestration: PASS.
+- Dependency injection for routing provider, repositories, and solver: PASS.
+- Structured errors and request IDs: PASS.
+- OpenAPI schema generation and route coverage: PASS.
+- Scenario and plan repositories: PASS.
+- API-level validation, size limits, and persistence tests: PASS.
+- Endpoints work without Streamlit and without a Google key when using fake/test dependencies: PASS.
+
+### Next action
+
+- Begin M7 by building the Streamlit planning workflow on top of the new HTTP API client and versioned endpoint contracts.
+
+---
+
+## 2026-06-22 — Build 011 — M7 — Streamlit planning workflow complete
+
+### Scope
+
+- Build the planner-facing Streamlit workflow on top of the versioned HTTP API.
+- Keep the frontend replaceable by avoiding backend implementation imports.
+- Add explicit validation, matrix, and solve stages with stale-state protection.
+- Add task CSV/XLSX import preview, route/result tables, diagnostics, and user-friendly API/provider errors.
+- Verify the UI starts without a Google key and does not make matrix calls on rerun.
+
+### Changes
+
+- `frontend/streamlit_app.py`: Replaced the M1 shell with Setup, Fleet, Tasks & import, Validation, Matrix, Optimization, and Results tabs; added canonical sample loading, backend status, validation preview, matrix activation/calculation buttons, optimization action, result metrics, route stop table, diagnostic table, stale-state warnings, and flash/rerun behavior that immediately unlocks the next workflow stage.
+- `frontend/api_client.py`: Expanded the HTTP-only client with typed health, validation, matrix, solve, plan retrieval, export, structured API error, timeout, and backend-unavailable handling.
+- `frontend/session_models.py`: Added deterministic validation, location, and task fingerprints plus workflow status helpers so location edits invalidate validation/matrix/plan, due-date edits invalidate validation/plan but not an address-identical matrix, and stale plans are hidden.
+- `frontend/import_preview.py`: Added frontend-only CSV/XLSX task import preview with alias mapping, unknown-column warnings, duplicate-column errors, missing-column errors, and row-level required-cell errors.
+- `frontend/tests/`: Added M7 coverage for API-client success/error/timeout/outage behavior, import preview issue mapping, workflow invalidation rules, solve enablement rules, stale plan hiding, sample loading, Streamlit startup, and a Streamlit AppTest click-through for validate -> matrix -> solve.
+- `README.md` and `project_plan.md`: Marked M7 complete and identified M8 as the next milestone.
+- Applied `ruff format .` to bring existing source files and the new M7 files into compliance with the documented format check.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| `python -m ruff format --check .` | PASS | 81 files already formatted after mechanical formatting. |
+| `python -m ruff check .` | PASS | All checks passed. |
+| `python -m mypy backend frontend` | PASS | No issues in 77 source files. |
+| Full test suite | PASS | `python -m pytest -q`: 129 tests passed; 3 third-party OR-Tools/SWIG deprecation warnings. |
+| Focused frontend suite | PASS | `python -m pytest frontend/tests -q`: 20 tests passed during M7 development. |
+| `python scripts/validate_m0.py` | PASS | All 672 M0 checks passed. |
+| `python scripts/review_m2_payloads.py` | PASS | Scenario A normalized rows and Scenario B capacity diagnostic remained correct. |
+| `python scripts/smoke_m1.py` | PASS | Real FastAPI and Streamlit processes started without a Google key; helper processes cleaned up. |
+| `python -m pip check` | PASS | No broken requirements found. |
+
+### Decisions and assumptions
+
+- The UI never asks for a Google key. Credentials remain backend-only through environment configuration.
+- Matrix calculation remains an explicit planner action. Loading the app, editing fields, validating, or rerunning Streamlit does not trigger a billable matrix call.
+- M7 import is a preview and issue-mapping workflow. Applying imported rows into the scenario editor remains a future enhancement after save/load/export work.
+- Sample Scenario A uses the deterministic fixture matrix so the primary workflow can be demonstrated without provider cost.
+- Validation freshness tracks editable planning inputs, while matrix freshness tracks location/routing inputs and plan freshness tracks task/fleet inputs plus current matrix state.
+
+### Known issues
+
+- Pytest still reports third-party OR-Tools/SWIG deprecation warnings during import. These are non-blocking library warnings.
+- The historical startup script remains named `smoke_m1.py`, but it continues to serve as the real backend + Streamlit process smoke check for later milestones.
+- Maps, CSV/XLSX export files, save/load UI controls, and detailed stop sheets are intentionally deferred to M8.
+
+### Gate status
+
+- **M7 COMPLETE.**
+- Setup, fleet, task, validation, matrix, optimization, and result pages: PASS.
+- CSV/XLSX import preview with visible column/row issues: PASS.
+- Backend API client with typed success, validation-error, timeout, and outage handling: PASS.
+- State invalidation rules for locations, due dates, matrix, and stale plans: PASS.
+- Solve disabled until current validation and matrix steps succeed: PASS.
+- Route/diagnostic result tables and feasible/infeasible summary cues: PASS.
+- Backend availability and provider/API errors displayed safely: PASS.
+- Frontend/backend boundary remains HTTP-only: PASS.
+- UI starts without direct API-key entry: PASS.
+
+### Next action
+
+- Begin M8 by adding route maps, CSV/XLSX exports, save/load scenario controls, and detailed plan sheets on top of the M7 workflow.
+
+---
+
+## 2026-06-26 — Build 012 — M8 — Maps, exports, and scenario persistence complete
+
+### Scope
+
+- Add route-map data shaping and Streamlit map rendering for backend route order.
+- Add route/diagnostic CSV exports and a multi-sheet XLSX plan workbook.
+- Add save/load scenario controls to the Streamlit setup workflow.
+- Ensure exports include unscheduled tasks, preserve timezone-labelled datetimes, and escape formula-like cells.
+- Verify empty/partial plans, duplicate-coordinate map markers, and save/load round-trip behavior.
+
+### Changes
+
+- `frontend/route_map.py`: Added map-data shaping with backend stop order preservation, stable per-vehicle colors, duplicate-coordinate marker offsets, labels, popups, and route-order preview polylines.
+- `frontend/export_utils.py`: Added plan summary, route summary, detailed route stop, diagnostic, CSV, and XLSX workbook builders with spreadsheet formula escaping and stable empty-table handling.
+- `frontend/api_client.py`: Added `save_scenario` and `load_scenario` methods for the existing scenario persistence API.
+- `frontend/streamlit_app.py`: Added save/load scenario controls, route map rendering, route summary display, route-stops CSV download, diagnostics CSV download, and plan workbook XLSX download.
+- `frontend/tests/test_route_map.py`: Added map-order, duplicate-coordinate, and distinct-vehicle-color tests.
+- `frontend/tests/test_export_utils.py`: Added route/diagnostic export completeness, timezone-preservation, formula-escaping, workbook-sheet, and empty/partial-plan tests.
+- `frontend/tests/test_api_client.py`: Added scenario save/load round-trip client test.
+- `frontend/tests/test_streamlit_smoke.py`: Updated the smoke test to assert M8 save/load controls are present.
+- `backend/app/application/routing_service.py`: Made routing-service cache metadata use the injected service clock for both `created_at` and `expires_at`, fixing a deterministic cache test failure when provider timestamps and injected cache time diverge.
+- `README.md` and `project_plan.md`: Marked M8 complete and identified M9 as the next milestone.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| Focused cache regression | PASS | `python -m pytest backend/tests/integration/routing/test_google_cache.py::test_cache_hit_prevents_second_google_http_call -q`: 1 passed. |
+| Focused frontend suite | PASS | `python -m pytest frontend/tests -q`: 28 tests passed during M8 development. |
+| `python -m ruff format --check .` | PASS | 85 files already formatted after mechanical formatting. |
+| `python -m ruff check .` | PASS | All checks passed. |
+| `python -m mypy backend frontend` | PASS | No issues in 81 source files. |
+| Full test suite | PASS | `python -m pytest -q`: 137 tests passed; 3 third-party OR-Tools/SWIG deprecation warnings. |
+| `python scripts/validate_m0.py` | PASS | All 672 M0 checks passed. |
+| `python scripts/review_m2_payloads.py` | PASS | Scenario A normalized rows and Scenario B capacity diagnostic remained correct. |
+| `python scripts/smoke_m1.py` | PASS | Real FastAPI and Streamlit processes started without a Google key; helper processes cleaned up. |
+| `python -m pip check` | PASS | No broken requirements found. |
+
+### Decisions and assumptions
+
+- The map uses backend stop order and planner location coordinates. M8 draws optional straight route-order preview lines only; it does not request billable provider road polylines.
+- Duplicate-coordinate stops are slightly offset for clickability and explicitly labeled as duplicate-coordinate markers.
+- CSV/XLSX exports are generated from the backend plan JSON contract in the frontend, so no backend implementation models are imported.
+- Formula-like spreadsheet values beginning with `=`, `+`, `-`, or `@` are prefixed with an apostrophe before CSV/XLSX export.
+- Scenario save/load uses the backend scenario API and never stores or exposes provider credentials in the frontend.
+- The cache timestamp fix centralizes cache metadata ownership in `RoutingService`, making tests and production cache expiry use one clock source.
+
+### Known issues
+
+- Pytest still reports third-party OR-Tools/SWIG deprecation warnings during import. These remain non-blocking library warnings.
+- M8 route lines are route-order preview lines, not road-following polylines. Provider-road polyline support remains dependent on future provider/cost policy.
+- The historical startup script remains named `smoke_m1.py`, but continues to serve as the real backend + Streamlit process smoke check.
+
+### Gate status
+
+- **M8 COMPLETE.**
+- Route map with distinct vehicle colors and ordered markers: PASS.
+- Duplicate-coordinate markers remain identifiable: PASS.
+- CSV and XLSX route/diagnostic exports: PASS.
+- Export contains route stops and unscheduled tasks: PASS.
+- Datetimes retain timezone labels in human-readable exports: PASS.
+- Formula-like cell content is escaped: PASS.
+- Save/load scenario controls and client round-trip: PASS.
+- Export generation handles empty/partial plans: PASS.
+- Map, route table, and export use backend route order: PASS.
+- Persistence does not retain or expose provider credentials: PASS.
+
+### Next action
+
+- Begin M9 by hardening the end-to-end release path, documenting deployment/Google setup/backup guidance, and preparing the Version 1 acceptance checklist.
+
+---
+
+## 2026-06-26 — Build 013 — M9 — Version 1 hardening and release documentation complete
+
+### Scope
+
+- Complete the end-to-end hardening and release-documentation milestone.
+- Add operational documentation for deployment, Google API restrictions, SQLite backup/restore, troubleshooting, known limitations, and Version 1 release sign-off.
+- Add release validation and clean-install scripts.
+- Add performance/size-limit/cache/database/solver hardening tests.
+- Establish the Version 1 baseline as `v1.0.0`.
+
+### Changes
+
+- `VERSION`: Added the Version 1 baseline marker `1.0.0`.
+- `pyproject.toml`: Updated the package version to `1.0.0`.
+- `README.md`: Updated status to Version 1 complete, refreshed quality commands, and linked the M9 operation/release docs.
+- `.env.example`: Clarified persistence and backend-only Google key guidance.
+- `docs/deployment.md`: Added Windows setup, backend/frontend startup, combined launcher usage, production settings, backend API independence, and release verification commands.
+- `docs/google_api_setup.md`: Rewrote the Google Maps Platform setup guide with backend-only key handling, Geocoding API + Routes API enablement, IP restriction guidance, cost controls, live smoke, and recovery steps.
+- `docs/backup_restore.md`: Added SQLite backup, online backup, restore, retention, and credential-safety guidance.
+- `docs/troubleshooting.md`: Added health checks, backend outage, Google credential/quota recovery, payload size, solver timeout, saved-scenario, export warning, and known limitation guidance.
+- `docs/version_1_release_checklist.md`: Added the `v1.0.0` release checklist covering all 20 Version 1 acceptance criteria.
+- `scripts/validate_m9_release.py`: Added release documentation, official-link, checklist, version-sync, `.gitignore`, and secret-safety validation.
+- `scripts/clean_install_check.py`: Added a temporary-venv clean install check for `pip install -e ".[dev]"`, `pip check`, and backend/frontend import validation.
+- `backend/tests/integration/test_m9_hardening.py`: Added representative larger fake-matrix caching, solver time-bound, corrupt persisted plan, missing database creation, and request-size limit tests.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| Focused M9 lint | PASS | `python -m ruff check backend/tests/integration/test_m9_hardening.py scripts/validate_m9_release.py scripts/clean_install_check.py`: all checks passed. |
+| Focused M9 tests | PASS | `python -m pytest backend/tests/integration/test_m9_hardening.py -q`: 6 tests passed. |
+| `python -m ruff format --check .` | PASS | 88 files already formatted. |
+| `python -m ruff check .` | PASS | All checks passed. |
+| `python -m mypy backend frontend` | PASS | No issues in 82 source files. |
+| Full test suite | PASS | `python -m pytest -q`: 143 tests passed; 3 third-party OR-Tools/SWIG deprecation warnings. |
+| `python scripts/validate_m0.py` | PASS | All 672 M0 checks passed. |
+| `python scripts/review_m2_payloads.py` | PASS | Scenario A normalized rows and Scenario B capacity diagnostic remained correct. |
+| `python scripts/smoke_m1.py` | PASS | Real FastAPI and Streamlit processes started without a Google key; helper processes cleaned up. |
+| `python scripts/validate_m9_release.py` | PASS | Required docs, links, checklist, version sync, and secret-safety guards passed. |
+| `python scripts/clean_install_check.py` | PASS | Temporary venv installed `manufacturing-po-route-optimizer==1.0.0`, `pip check` passed, and backend/frontend imports passed. |
+| `python -m pip check` | PASS | No broken requirements found. |
+| Dependency vulnerability tooling | PASS/Not available | `python -m pip_audit --version` reported `No module named pip_audit`; no vulnerability audit tool is installed in the project environment. Dependency integrity was verified with `pip check`. |
+
+### Decisions and assumptions
+
+- The workspace is not a Git repository, so the Version 1 baseline is recorded with `VERSION`, `pyproject.toml` version `1.0.0`, the release checklist, and this build log. If imported into Git later, tag the passing commit as `v1.0.0`.
+- Google setup documentation links to official Google Maps Platform docs and keeps all credentials backend-only.
+- `scripts/clean_install_check.py` is intentionally optional for routine development because it creates a temporary venv and can take several minutes.
+- The release validator scans committed docs/config/scripts/tests for key-like Google secrets while ignoring the local `.env` file, which is intentionally untracked.
+- The app remains a local SQLite Version 1 deployment; managed multi-user database hosting is documented as a future enterprise evolution.
+
+### Known issues
+
+- Pytest still reports third-party OR-Tools/SWIG deprecation warnings during import. These are non-blocking library warnings.
+- `pip-audit` is not installed in the project environment, so a CVE audit was not available without adding tooling. This is documented in the verification table.
+- Route-map lines remain non-billable route-order preview lines, not road-following provider polylines.
+- Scenario search/list UI and richer grid editing remain future enhancements.
+
+### Gate status
+
+- **M9 COMPLETE.**
+- Full regression suite: PASS.
+- Performance and size-limit tests: PASS.
+- Windows startup and deployment documentation: PASS.
+- Google API setup/restriction guide: PASS.
+- Backup/restore guidance for SQLite: PASS.
+- Known limitations and troubleshooting section: PASS.
+- Release checklist and Version 1 baseline: PASS.
+- Clean-environment install: PASS.
+- Lint, type, unit, integration, API, solver, and UI smoke tests: PASS.
+- Representative larger matrix through fake provider: PASS.
+- Solver respects configured time bound: PASS.
+- Corrupt/missing cache and database failures are controlled: PASS.
+- Dependency review where tooling is available: PASS with `pip check`; `pip-audit` unavailable.
+- All 20 Version 1 acceptance criteria recorded as passing: PASS.
+- No real secrets in committed configuration/docs/tests: PASS.
+
+### Next action
+
+- Version 1 is ready for user acceptance. If this folder is imported into Git, create the `v1.0.0` tag on the passing baseline.

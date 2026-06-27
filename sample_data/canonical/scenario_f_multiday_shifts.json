@@ -1,0 +1,63 @@
+{
+  "fixture_version": "1.0",
+  "scenario_id": "F",
+  "name": "Multi-day physical truck shifts",
+  "category": "planning",
+  "description": "One physical truck is represented by two dated shifts and serves tasks on separate days.",
+  "timezone": "America/Toronto",
+  "planning_horizon": {
+    "start": "2026-06-22T07:00:00-04:00",
+    "end": "2026-06-23T17:00:00-04:00"
+  },
+  "plant_location_id": "PLANT",
+  "locations_ref": "shared_locations.json",
+  "matrix_ref": "shared_matrix.json",
+  "vehicles": [
+    {"vehicle_id": "TRUCK-1", "name": "Truck 1", "capacity": 10, "enabled": true}
+  ],
+  "vehicle_shifts": [
+    {"shift_id": "TRUCK-1-20260622", "vehicle_id": "TRUCK-1", "start": "2026-06-22T07:00:00-04:00", "end": "2026-06-22T17:00:00-04:00"},
+    {"shift_id": "TRUCK-1-20260623", "vehicle_id": "TRUCK-1", "start": "2026-06-23T07:00:00-04:00", "end": "2026-06-23T17:00:00-04:00"}
+  ],
+  "tasks": [
+    {
+      "task_id": "TASK-DAY-1",
+      "po_number": "PO-DAY-1",
+      "task_type": "PICKUP",
+      "origin_location_id": "SUPPLIER_A",
+      "destination_location_id": "PLANT",
+      "quantity": 6,
+      "ready_at": "2026-06-22T08:00:00-04:00",
+      "due_at": "2026-06-22T16:00:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 2
+    },
+    {
+      "task_id": "TASK-DAY-2",
+      "po_number": "PO-DAY-2",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "CUSTOMER_B",
+      "quantity": 7,
+      "ready_at": "2026-06-23T08:00:00-04:00",
+      "due_at": "2026-06-23T15:00:00-04:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 2
+    }
+  ],
+  "expected": {
+    "status": "FEASIBLE",
+    "physical_vehicle_count": 1,
+    "vehicle_shift_count": 2,
+    "scheduled_task_count": 2,
+    "required_shift_assignments": {
+      "TASK-DAY-1": "TRUCK-1-20260622",
+      "TASK-DAY-2": "TRUCK-1-20260623"
+    },
+    "overlapping_physical_vehicle_use": false
+  }
+}
