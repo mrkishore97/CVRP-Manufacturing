@@ -19,6 +19,7 @@ from pydantic import (
 
 from backend.app.domain.enums import (
     DueEvent,
+    GeocodeLocationType,
     GeocodeStatus,
     RoutingPreference,
     TaskType,
@@ -70,7 +71,12 @@ class DomainModel(BaseModel):
 
 
 class Location(DomainModel):
-    """A plant, supplier, customer, or hub location."""
+    """A plant, supplier, customer, or hub location.
+
+    Only ``location_id``, ``name``, and ``address`` are planner input. The remaining
+    fields are derived from address resolution; ``geocode_source_fingerprint`` and
+    ``geocoded_at`` record which address text produced the coordinates and when.
+    """
 
     location_id: Identifier
     name: NonEmptyText
@@ -81,6 +87,16 @@ class Location(DomainModel):
     longitude: float | None = Field(default=None, ge=-180, le=180)
     geocode_status: GeocodeStatus = GeocodeStatus.PENDING
     geocode_warning: str | None = None
+    geocode_source_fingerprint: str | None = Field(default=None, max_length=200)
+    geocoded_at: datetime | None = None
+    geocode_location_type: GeocodeLocationType | None = None
+    geocode_partial_match: bool | None = None
+    geocode_confirmed: bool = False
+
+    @field_validator("geocoded_at")
+    @classmethod
+    def normalize_geocoded_at(cls, value: datetime | None) -> datetime | None:
+        return ensure_aware_utc(value) if value is not None else None
 
     @model_validator(mode="after")
     def coordinates_are_paired(self) -> Self:
@@ -88,6 +104,8 @@ class Location(DomainModel):
             raise ValueError("latitude and longitude must be provided together")
         if self.geocode_status is GeocodeStatus.RESOLVED and self.latitude is None:
             raise ValueError("resolved location requires latitude and longitude")
+        if self.geocode_status is GeocodeStatus.NEEDS_REVIEW and self.latitude is None:
+            raise ValueError("location needing review requires the matched coordinates")
         return self
 
 

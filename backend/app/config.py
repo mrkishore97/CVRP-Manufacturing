@@ -3,15 +3,18 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from backend.app.domain.geocoding import GEOCODE_MAX_AGE_SECONDS, normalize_region_code
 
 
 class Settings(BaseSettings):
     """Validated backend settings.
 
-    No Google key is required during M1. The optional field is present so secrets
-    have a backend-only home when the Google adapter is implemented in M3.
+    The Google key is optional: without it the API still validates, solves embedded
+    matrices, and reports through ``GET /config`` that Google calls are unavailable.
+    ``GEOCODE_CACHE_TTL_SECONDS`` cannot exceed 30 days (Google's caching limit).
     """
 
     model_config = SettingsConfigDict(
@@ -92,6 +95,33 @@ class Settings(BaseSettings):
         le=1_440,
         validation_alias="MATRIX_DEPARTURE_BUCKET_MINUTES",
     )
+    matrix_confirm_elements: int = Field(
+        default=400,
+        ge=1,
+        validation_alias="MATRIX_CONFIRM_ELEMENTS",
+    )
+    geocode_region_code: str | None = Field(
+        default="ca",
+        validation_alias="GEOCODE_REGION_CODE",
+    )
+    geocode_cache_ttl_seconds: int = Field(
+        default=GEOCODE_MAX_AGE_SECONDS,
+        ge=1,
+        le=GEOCODE_MAX_AGE_SECONDS,
+        validation_alias="GEOCODE_CACHE_TTL_SECONDS",
+    )
+    geocode_max_plant_distance_km: float = Field(
+        default=500.0,
+        gt=0,
+        le=20_100,
+        validation_alias="GEOCODE_MAX_PLANT_DISTANCE_KM",
+    )
+    geocode_max_concurrency: int = Field(
+        default=4,
+        ge=1,
+        le=10,
+        validation_alias="GEOCODE_MAX_CONCURRENCY",
+    )
     solver_time_limit_seconds: int = Field(
         default=10,
         ge=1,
@@ -121,6 +151,18 @@ class Settings(BaseSettings):
         le=5_000,
         validation_alias="API_MAX_GEOCODE_ADDRESSES",
     )
+
+    @field_validator("geocode_region_code", mode="before")
+    @classmethod
+    def normalize_geocode_region_code(cls, value: object) -> object:
+        if value is None or isinstance(value, str):
+            return normalize_region_code(value)
+        return value
+
+    @property
+    def google_maps_configured(self) -> bool:
+        """Whether a Google key is present, without revealing anything about it."""
+        return bool(self.google_maps_api_key and self.google_maps_api_key.strip())
 
 
 @lru_cache(maxsize=1)

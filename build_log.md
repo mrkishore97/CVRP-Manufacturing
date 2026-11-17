@@ -3,7 +3,7 @@
 **Purpose:** Chronological implementation and verification record  
 **Project plan:** `project_plan.md` (Version 1.0); `project_plan_v1.1.md` (Version 1.1, from Build 014)  
 **Started:** 2026-06-21  
-**Current milestone:** Version 1.1 — V1.1-M0 complete on branch `v1.1`; next V1.1-M1
+**Current milestone:** Version 1.1 — V1.1-M1 complete on branch `v1.1`; next V1.1-M2
 
 ## Logging rules
 
@@ -1058,3 +1058,125 @@ Plan: `project_plan_v1.1.md` §14, V1.1-M0. Rule 8 above now refers to that plan
 ### Next action
 
 - Settle D6; start V1.1-M1 (backend address resolution).
+
+## 2026-11-16 — Build 015 — V1.1-M1 — Backend address resolution
+
+Plan: `project_plan_v1.1.md` §14, V1.1-M1 (design in §8.2–§8.6).
+
+### Scope
+
+- `Location` provenance fields and the `NEEDS_REVIEW` status.
+- `resolve_address()` on the Google and fake providers, with region bias.
+- `location_service.py`, a 30-day `geocode_cache.py` with a start-up purge.
+- `POST /locations/resolve`, `POST /matrices/estimate`, `GET /config`, and the new settings.
+- Backend only: no frontend change in this milestone.
+
+### Changes
+
+- **Domain**
+  - `domain/enums.py`: `GeocodeStatus.NEEDS_REVIEW`, `GeocodeLocationType`, `GeocodeReasonCode`, and validation codes `STALE_GEOCODE` and `GEOCODE_EXPIRED`.
+  - `domain/geocoding.py` (new, pure): address normalisation, region-code check, the provenance fingerprint `v1:<region>:<sha256>`, the 30-day expiry rule, and straight-line distance (a sanity check only).
+  - `domain/models.py` → `Location` gains `geocode_source_fingerprint`, `geocoded_at`, `geocode_location_type`, `geocode_partial_match`, and `geocode_confirmed`. A `NEEDS_REVIEW` location must carry the matched coordinates.
+- **Validation** (`domain/validation.py`)
+  - Warns `STALE_GEOCODE` when the fingerprint no longer matches the address.
+  - Warns `GEOCODE_EXPIRED` when `geocoded_at` is older than the limit, or missing beside a fingerprint.
+  - Coordinates without a fingerprint (Version 1.0 JSON) are trusted as before.
+  - `validate_planning_payload` gains keyword-only `now` and `geocode_max_age_seconds`; the plan routes pass `GEOCODE_CACHE_TTL_SECONDS`.
+- **Routing**
+  - `routing/base.py`: `GeocodeCandidate`, `AddressResolution`, and `resolve_address` on the provider protocol.
+  - `routing/google.py`: one shared geocode request returns every candidate with `location_type` and `partial_match`, and sends `region` when given.
+    - `ZERO_RESULTS` is an empty resolution.
+    - Key, quota and transport failures keep their stable codes.
+    - The legacy `geocode()` is adapted from it with identical requests (no `region`): first match, `GEO-<hash>` ID, `GEOCODE_NOT_FOUND` on no match.
+    - Malformed alternative results are skipped; a malformed first result is still `ROUTING_INVALID_RESPONSE`.
+  - `routing/fake.py`: configurable resolutions per address, plus per-address or global failures, with call counting.
+- **Persistence and services**
+  - `persistence/geocode_cache.py` (new): a SQLite `geocode_cache` keyed by a hash of provider, region, normalised address and schema version.
+    - Stores parsed candidates and fixed-width UTC timestamps only.
+    - The TTL is refused above 30 days, and a lowered TTL also applies to older rows.
+    - Not-found answers are refused; `purge_expired()` removes old rows.
+  - `application/location_service.py` (new) implements plan §8.3–§8.4:
+    - Normalises addresses, makes one provider call per distinct address, and checks the cache first.
+    - Calls the provider with bounded concurrency through a `TaskGroup`. The first provider failure fails the batch with its own code, and answers already received are cached first.
+    - Classifies every match: `RESOLVED`; `NEEDS_REVIEW` for `PARTIAL_MATCH`, `LOW_PRECISION`, `MULTIPLE_MATCHES` or `FAR_FROM_PLANT`; `FAILED` for `ADDRESS_NOT_FOUND`; plus the `DUPLICATE_PLACE` note.
+    - Treats a re-resolved place the planner already confirmed as `RESOLVED` with `geocode_confirmed`.
+    - Returns results in request order under the caller's location IDs.
+  - `application/routing_service.py`: `estimate_matrix()` counts elements and requests and checks the cache, with no provider call.
+- **API**
+  - `api/routes/locations.py`: `POST /api/v1/locations/resolve`. The row limit is `API_MAX_GEOCODE_ADDRESSES` (HTTP 413 `RESOLVE_LIMIT_EXCEEDED`). Duplicate IDs, blank addresses and bad region codes return 422.
+  - `api/routes/routing.py`: `POST /api/v1/matrices/estimate`.
+  - `api/routes/system.py`: `GET /api/v1/config` returns timezone, `google_maps_configured`, region, TTL, plant-distance check, confirmation threshold, solver limit and request limits — never the key.
+  - `api/main.py`: a lifespan hook purges expired geocode rows at backend start.
+  - `api/dependencies.py`: geocode-cache and location-service dependencies, and shared routing limits.
+- **Configuration and docs**
+  - `config.py` and `.env.example`: `GEOCODE_REGION_CODE` (default `ca`, per D4); `GEOCODE_CACHE_TTL_SECONDS` (default and maximum 2,592,000); `GEOCODE_MAX_PLANT_DISTANCE_KM` (500); `GEOCODE_MAX_CONCURRENCY` (4); `MATRIX_CONFIRM_ELEMENTS` (400). Also the `google_maps_configured` property.
+  - `docs/google_api_setup.md`: address-resolution cost controls, the estimate endpoint, and the logging fix with advice for old logs.
+  - `project_plan_v1.1.md`: F19 added to §2; "as built" notes added to §8.3; M1 status and next step.
+
+### Finding F19 — API key and addresses in the backend log (fixed)
+
+While writing the "no key in any log" test, the first run failed. httpx logs every request URL at INFO. Geocoding sends the key and the raw address as query parameters, so at the default `LOG_LEVEL=INFO` lines such as `HTTP Request: GET …/geocode/json?address=…&key=…` reached the backend log.
+
+This is Version 1.0 behaviour; the legacy `/locations/geocode` path has it too.
+
+The fix limits the `httpx` and `httpcore` loggers to warnings in `logging_config.configure_logging` and whenever `GoogleRoutingProvider` is created. Scripts that use the adapter outside the API are covered too.
+
+Logs written by a Version 1.0 backend that ran with a real key should be treated as containing the key. Recorded in plan §2 and `docs/google_api_setup.md`.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| `python -m ruff format --check .` | PASS | 101 files already formatted. |
+| `python -m ruff check .` | PASS | All checks passed. |
+| `python -m mypy backend frontend` | PASS | No issues in 95 source files. |
+| `python -m pytest -q` | PASS | **281 passed** (179 before + 102 new); same 3 OR-Tools/SWIG warnings. No existing test file was modified. |
+| Characterization tests | PASS | `test_v1_0_characterization.py`: 13 passed — Version 1.0 results unchanged. |
+| `python scripts/validate_m0.py` | PASS | 672 checks. |
+| `python scripts/validate_m9_release.py` | PASS | The secret scan first flagged a test sentinel shaped like a Google key (`AIza…`). The sentinel was renamed; no real secret was involved. |
+| `python scripts/review_m2_payloads.py` | PASS | Unchanged. |
+| `python scripts/smoke_m1.py` | PASS | Real backend (with the new start-up hook) and Streamlit started. |
+| `python -m pip check` | PASS | No broken requirements. |
+
+New tests (mocked HTTP or fake provider; no key needed), mapped to the plan's M1 checks:
+
+| Plan check | Tests |
+|---|---|
+| Results map to the caller's IDs in request order | `test_location_service.py::test_results_keep_the_callers_ids_and_request_order`; API `test_resolve_returns_rows_in_request_order_with_a_summary` |
+| Duplicate addresses cause one provider call | `test_duplicate_addresses_cause_one_provider_call` (case and spacing differences included) |
+| Every classification row, including far-from-plant and duplicate place | `test_exact_and_interpolated_matches_resolve`; `test_doubtful_matches_need_review` (partial, approximate, geometric centre, multiple, wrong city); `test_unknown_address_fails_only_its_own_row`; `test_two_ids_at_one_place_are_resolved_with_a_note`; plant-coordinate and skipped-check tests; confirmation tests |
+| One unmatched address does not fail the batch; key or quota failure does, with its code | `test_unknown_address_fails_only_its_own_row`; `test_provider_failure_fails_the_batch_with_its_code`; API `test_provider_failure_fails_the_request_with_its_stable_code` (502 with `ROUTING_AUTH_ERROR`, `ROUTING_RATE_LIMIT`, `ROUTING_TIMEOUT`); Google `test_key_and_quota_failures_raise_stable_codes` |
+| Cache: miss then hit; expiry; TTL ≤ 30 days; failures not cached; force refresh | `test_geocode_cache.py` (13 tests); service tests for cache hits, original `geocoded_at`, expiry, per-region keys, force refresh, and caching before a failure; API `test_repeat_resolve_is_served_from_cache_unless_forced`; `test_backend_start_purges_expired_geocodes` |
+| Address-only JSON validates; Version 1.0 JSON unchanged; stale and expired warnings | `test_geocode_provenance.py` (23 tests) |
+| No key in any response, log, or cache row | API `test_no_key_or_address_in_responses_logs_or_cache_rows` (Google adapter over mocked HTTP, DEBUG capture, raw database bytes); Google `test_resolve_logs_never_contain_the_key_or_address`; `test_config_reports_settings_without_any_secret` |
+| Legacy `/locations/geocode` unchanged | API `test_legacy_geocode_endpoint_is_unchanged`; Google `test_legacy_geocode_still_sends_no_region_parameter`, `test_legacy_geocode_still_fails_on_zero_results`; all Version 1.0 Google provider tests unchanged and passing |
+| OpenAPI schema generates | `test_openapi_schema_lists_the_new_endpoints` |
+| Gate: address-only end to end through the API with the fake provider | `test_address_only_scenario_resolves_validates_and_solves`: address-only JSON validates, then resolve, store derived fields, validate with no warnings, estimate (miss), compute, estimate (hit, 0 billable), solve → FEASIBLE |
+
+### Manual checks
+
+- Real backend under uvicorn (port 8011, throw-away database in the session scratchpad):
+  - Start-up completed with no errors, including the purge hook.
+  - `GET /config` returned only non-secret values (region `ca`, 30-day TTL, confirmation threshold 400, `google_maps_configured` as a boolean).
+  - `POST /matrices/estimate` for 21 locations reported 441 elements, 1 request, no cache hit, and confirmation required.
+  - `/openapi.json` lists the three new endpoints.
+- Not called on the live server: `/locations/resolve`, which would send addresses to Google.
+- Optional live check (resolve a handful of public addresses): **not run**. It is billable and sends addresses to Google, so it waits for the user's go-ahead.
+
+### Known issues
+
+- OR-Tools/SWIG deprecation warnings remain (third-party, non-blocking).
+- D6 (persistence of Google travel-time matrices) is still open and must be settled before V1.1-M3; M1 does not change matrix caching.
+- Stripping expired coordinates from saved scenarios on load and by a start-up sweep (plan §8.6) is not in M1's deliverables; it is an M6 check ("expired coordinates stripped on load"). Until then, validation warns `GEOCODE_EXPIRED`. M1's start-up purge covers the geocode cache table only.
+- `.env` was not read or changed.
+
+### Gate status
+
+- **V1.1-M1 COMPLETE.**
+- Address-only resolution works end to end through the API with the fake provider: PASS.
+- Version 1.0 API tests untouched and green: PASS (no existing test file changed; 179 earlier tests pass).
+- Clean working tree: PASS — the milestone was committed on branch `v1.1` at the user's request (2026-11-16).
+
+### Next action
+
+- Settle D6; start V1.1-M2 (frontend foundation).

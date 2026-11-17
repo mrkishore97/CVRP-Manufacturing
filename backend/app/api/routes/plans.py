@@ -131,7 +131,10 @@ async def validate_plan_payload(
     _enforce_planning_payload_limits(payload, settings)
     return PlanValidationResponse(
         request_id=request_id,
-        validation=validate_planning_payload(payload),
+        validation=validate_planning_payload(
+            payload,
+            geocode_max_age_seconds=settings.geocode_cache_ttl_seconds,
+        ),
     )
 
 
@@ -149,7 +152,10 @@ async def solve_plan(
 ) -> PlanSolveResponse:
     """Validate, solve, persist, and return a plan for a planning payload."""
     _enforce_planning_payload_limits(payload, settings)
-    validation = validate_planning_payload(payload)
+    validation = validate_planning_payload(
+        payload,
+        geocode_max_age_seconds=settings.geocode_cache_ttl_seconds,
+    )
     _validate_payload_or_raise(payload, validation)
     if validation.normalized_request is None:
         raise ApiRequestError(

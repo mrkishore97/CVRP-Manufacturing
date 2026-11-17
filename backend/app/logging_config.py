@@ -10,3 +10,7 @@ def configure_logging(level: str) -> None:
         level=normalized_level,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    # httpx logs request URLs at INFO; Google geocoding URLs contain the API key and
+    # the raw address, so transport logging is limited to warnings and errors.
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)

@@ -81,6 +81,32 @@ coordinates, or full provider responses.
   `ROUTES_MAX_ORIGINS`, `ROUTES_MAX_DESTINATIONS`, and `ROUTES_MAX_ELEMENTS`.
 - The app default maximum route-matrix element count is 625, matching the
   documented Compute Route Matrix cap for a request.
+- `POST /api/v1/matrices/estimate` reports billable elements, the number of Google
+  requests, and whether the cache already holds the matrix, without calling Google.
+  Above `MATRIX_CONFIRM_ELEMENTS` (default 400) it reports that confirmation is needed.
+
+### Address resolution (Version 1.1)
+
+- `POST /api/v1/locations/resolve` sends each distinct address once: duplicates
+  (ignoring case and extra spaces) share one Geocoding request.
+- Requests carry the region bias `GEOCODE_REGION_CODE` (default `ca`); a request may
+  override it.
+- Found results are cached for `GEOCODE_CACHE_TTL_SECONDS`, which cannot be set above
+  30 days. The cache row stores the parsed matches and timestamps only: no address
+  text, no key, no raw Google response. Not-found answers are not cached, and expired
+  rows are deleted when the backend starts.
+- A cache hit keeps the original `geocoded_at`, so the 30-day limit counts from the
+  moment Google answered, not from the latest cache read.
+- `GET /api/v1/config` tells the UI whether a key is configured, without revealing it.
+
+### Logging
+
+httpx logs every request URL at INFO level, and Geocoding URLs carry the key and the
+raw address in the query string. Since V1.1-M1 the backend limits the `httpx` and
+`httpcore` loggers to warnings (in `configure_logging` and whenever the Google adapter
+is created), so neither appears in the log at any `LOG_LEVEL`. Version 1.0 did write
+both to the log at the default `INFO` level: if a Version 1.0 backend ran with a real key,
+treat its old log files as containing the key, delete them, and consider rotating the key.
 
 ## Google usage terms that shape Version 1.1
 
@@ -101,7 +127,7 @@ Sources:
 
 | Rule | Status | How Version 1.1 complies |
 |---|---|---|
-| Geocoding latitude/longitude may be cached for at most 30 consecutive calendar days, then deleted. | Policy page, read directly | Decision D2: geocode cache and stored coordinates carry `geocoded_at`; anything older than 30 days is not used and is re-resolved (plan §8.6). |
+| Geocoding latitude/longitude may be cached for at most 30 consecutive calendar days, then deleted. | Policy page, read directly | Decision D2: geocode cache and stored coordinates carry `geocoded_at`; anything older than 30 days is not used and is re-resolved (plan §8.6). Since V1.1-M1 the cache TTL cannot exceed 30 days, expired rows are purged at start-up, and validation warns `GEOCODE_EXPIRED`. |
 | Place IDs may be stored indefinitely. | Policy page, read directly | Place IDs are kept with each location. |
 | Geocoding API content must not be used in conjunction with a non-Google map. | *(terms, via search)* | Decision D1: Google-derived locations are shown only through Google — an "Open route in Google Maps" link per truck, and an embedded Google map only if a separate browser-restricted embed key is configured. The Folium/OpenStreetMap map remains only for scenarios whose coordinates were supplied in JSON (such as the samples). |
 | Routes API latitude/longitude may be cached for at most 30 days. | *(terms, via search)* | Same 30-day ceiling as geocodes. |

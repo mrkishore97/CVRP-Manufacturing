@@ -14,8 +14,12 @@ from typing import Any
 
 import httpx
 
+from backend.app.domain.enums import GeocodeLocationType
+from backend.app.domain.geocoding import normalize_address, normalize_region_code
 from backend.app.domain.models import RoutingMatrix
 from backend.app.routing.base import (
+    AddressResolution,
+    GeocodeCandidate,
     RoutingLocation,
     RoutingOptions,
     RoutingProviderError,
@@ -28,11 +32,25 @@ from backend.app.routing.estimator import (
 )
 
 LOGGER = logging.getLogger(__name__)
+TRANSPORT_LOGGER_NAMES = ("httpx", "httpcore")
 GOOGLE_FIELD_MASK = "originIndex,destinationIndex,status,condition,distanceMeters,duration"
 DURATION_PATTERN = re.compile(r"^(?P<seconds>\d+)(?:\.(?P<fraction>\d{1,9}))?s$")
 SleepFunction = Callable[[float], Awaitable[None]]
 JitterFunction = Callable[[float, float], float]
 NowFunction = Callable[[], datetime]
+
+
+def quiet_transport_loggers() -> None:
+    """Stop httpx logging request URLs.
+
+    httpx logs every request URL at INFO. Geocoding URLs carry the API key and the
+    raw address in the query string, so at the default log level both would reach
+    the backend log. Only warnings and errors from the transport are kept.
+    """
+    for name in TRANSPORT_LOGGER_NAMES:
+        transport_logger = logging.getLogger(name)
+        if transport_logger.level < logging.WARNING:  # includes NOTSET
+            transport_logger.setLevel(logging.WARNING)
 
 
 class GoogleRoutingProvider:
@@ -66,6 +84,7 @@ class GoogleRoutingProvider:
             raise ValueError("maximum_attempts must be positive")
         if retry_base_delay_seconds < 0:
             raise ValueError("retry_base_delay_seconds cannot be negative")
+        quiet_transport_loggers()
         self._api_key = api_key
         self._geocoding_url = geocoding_url
         self._routes_matrix_url = routes_matrix_url
@@ -190,13 +209,17 @@ class GoogleRoutingProvider:
             ) from exc
 
     async def geocode(self, addresses: Sequence[str]) -> tuple[RoutingLocation, ...]:
-        """Geocode unique addresses once and preserve original request order."""
+        """Geocode unique addresses once and preserve original request order.
+
+        Version 1.0 contract: no region bias, the first match wins, and an address
+        with no match fails the whole request with ``GEOCODE_NOT_FOUND``.
+        """
         if not addresses:
             return ()
         normalized_addresses: list[str] = []
         unique_addresses: dict[str, str] = {}
         for address in addresses:
-            normalized = " ".join(address.strip().split()).casefold()
+            normalized = normalize_address(address)
             if not normalized:
                 raise RoutingProviderError(
                     RoutingErrorCode.INVALID_REQUEST,
@@ -214,19 +237,83 @@ class GoogleRoutingProvider:
                 resolved[normalized] = await self._geocode_one(client, original, normalized)
         return tuple(resolved[normalized] for normalized in normalized_addresses)
 
+    async def resolve_address(
+        self,
+        address: str,
+        *,
+        region_code: str | None = None,
+    ) -> AddressResolution:
+        """Return every Google candidate for one address, with match-quality fields.
+
+        No match returns an empty resolution; key, quota, and transport failures
+        raise ``RoutingProviderError`` with the stable codes.
+        """
+        normalized = normalize_address(address)
+        if not normalized:
+            raise RoutingProviderError(
+                RoutingErrorCode.INVALID_REQUEST,
+                "Address cannot be empty.",
+            )
+        try:
+            region = normalize_region_code(region_code)
+        except ValueError as exc:
+            raise RoutingProviderError(RoutingErrorCode.INVALID_REQUEST, str(exc)) from None
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(self._timeout_seconds),
+            transport=self._transport,
+        ) as client:
+            return await self._request_geocode(
+                client,
+                address.strip(),
+                normalized,
+                region_code=region,
+            )
+
     async def _geocode_one(
         self,
         client: httpx.AsyncClient,
         address: str,
         normalized_address: str,
     ) -> RoutingLocation:
+        resolution = await self._request_geocode(
+            client,
+            address,
+            normalized_address,
+            region_code=None,
+        )
+        best = resolution.best
+        if best is None:
+            raise RoutingProviderError(
+                RoutingErrorCode.GEOCODE_NOT_FOUND,
+                f"Google geocoding found no match for address hash "
+                f"{self._address_hash(normalized_address)}.",
+            )
+        return RoutingLocation(
+            location_id=f"GEO-{self._address_hash(normalized_address)}",
+            formatted_address=best.formatted_address,
+            latitude=best.latitude,
+            longitude=best.longitude,
+            place_id=best.place_id,
+        )
+
+    async def _request_geocode(
+        self,
+        client: httpx.AsyncClient,
+        address: str,
+        normalized_address: str,
+        *,
+        region_code: str | None,
+    ) -> AddressResolution:
+        params = {"address": address, "key": self._api_key}
+        if region_code is not None:
+            params["region"] = region_code
         for api_attempt in range(1, self._maximum_attempts + 1):
             response = await self._send(
                 client,
                 "GET",
                 self._geocoding_url,
                 operation="geocoding",
-                params={"address": address, "key": self._api_key},
+                params=params,
             )
             payload = self._response_json(response, "geocoding")
             if not isinstance(payload, dict):
@@ -236,13 +323,13 @@ class GoogleRoutingProvider:
                 )
             status = payload.get("status")
             if status == "OK":
-                return self._parse_geocode_result(payload, normalized_address)
+                return self._parse_geocode_results(payload)
             if status == "ZERO_RESULTS":
-                raise RoutingProviderError(
-                    RoutingErrorCode.GEOCODE_NOT_FOUND,
-                    f"Google geocoding found no match for address hash "
-                    f"{self._address_hash(normalized_address)}.",
+                LOGGER.info(
+                    "Google geocoding found no match for address hash %s",
+                    self._address_hash(normalized_address),
                 )
+                return AddressResolution()
             if status == "REQUEST_DENIED":
                 raise RoutingProviderError(
                     RoutingErrorCode.AUTH_ERROR,
@@ -279,19 +366,28 @@ class GoogleRoutingProvider:
     def _address_hash(normalized_address: str) -> str:
         return hashlib.sha256(normalized_address.encode("utf-8")).hexdigest()[:12]
 
-    def _parse_geocode_result(
-        self,
-        payload: dict[str, Any],
-        normalized_address: str,
-    ) -> RoutingLocation:
+    @classmethod
+    def _parse_geocode_results(cls, payload: dict[str, Any]) -> AddressResolution:
+        """Parse the first result strictly and keep only well-formed alternatives."""
         results = payload.get("results")
         if not isinstance(results, list) or not results or not isinstance(results[0], dict):
             raise RoutingProviderError(
                 RoutingErrorCode.INVALID_RESPONSE,
                 "Google geocoding response did not contain a usable result.",
             )
-        first = results[0]
-        geometry = first.get("geometry")
+        candidates = [cls._parse_candidate(results[0])]
+        for alternative in results[1:]:
+            if not isinstance(alternative, dict):
+                continue
+            try:
+                candidates.append(cls._parse_candidate(alternative))
+            except RoutingProviderError:
+                LOGGER.info("Ignoring a malformed alternative Google geocoding result")
+        return AddressResolution(candidates=tuple(candidates))
+
+    @staticmethod
+    def _parse_candidate(result: dict[str, Any]) -> GeocodeCandidate:
+        geometry = result.get("geometry")
         location = geometry.get("location") if isinstance(geometry, dict) else None
         if not isinstance(location, dict):
             raise RoutingProviderError(
@@ -312,19 +408,29 @@ class GoogleRoutingProvider:
                 RoutingErrorCode.INVALID_RESPONSE,
                 "Google geocoding returned invalid coordinates.",
             )
-        formatted_address = first.get("formatted_address")
-        place_id = first.get("place_id")
+        formatted_address = result.get("formatted_address")
+        place_id = result.get("place_id")
         if not isinstance(formatted_address, str) or not formatted_address.strip():
             raise RoutingProviderError(
                 RoutingErrorCode.INVALID_RESPONSE,
                 "Google geocoding response did not contain a formatted address.",
             )
-        return RoutingLocation(
-            location_id=f"GEO-{self._address_hash(normalized_address)}",
+        raw_location_type = geometry.get("location_type") if isinstance(geometry, dict) else None
+        try:
+            location_type = (
+                GeocodeLocationType(raw_location_type)
+                if isinstance(raw_location_type, str)
+                else None
+            )
+        except ValueError:
+            location_type = None
+        return GeocodeCandidate(
             formatted_address=formatted_address,
             latitude=float(latitude),
             longitude=float(longitude),
             place_id=place_id if isinstance(place_id, str) else None,
+            location_type=location_type,
+            partial_match=result.get("partial_match") is True,
         )
 
     async def compute_matrix(

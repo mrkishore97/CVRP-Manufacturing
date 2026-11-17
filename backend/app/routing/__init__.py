@@ -1,6 +1,8 @@
 """Routing-provider contracts and adapters."""
 
 from backend.app.routing.base import (
+    AddressResolution,
+    GeocodeCandidate,
     RouteMatrix,
     RoutingLocation,
     RoutingOptions,
@@ -20,7 +22,9 @@ from backend.app.routing.fake import FakeRoutingProvider
 from backend.app.routing.google import GoogleRoutingProvider
 
 __all__ = [
+    "AddressResolution",
     "FakeRoutingProvider",
+    "GeocodeCandidate",
     "GoogleRoutingProvider",
     "MatrixBatch",
     "MatrixRequestEstimate",

@@ -2,18 +2,19 @@
 
 from typing import Annotated, cast
 
-from fastapi import Depends, Request
+from fastapi import Depends, FastAPI, Request
 
-from backend.app.application import PlanningService, RoutingService
+from backend.app.application import LocationService, PlanningService, RoutingService
 from backend.app.config import Settings
 from backend.app.optimization.solver import OrToolsCapacitySolver, SolverConfig
 from backend.app.persistence import (
     SQLiteDatabase,
+    SQLiteGeocodeCache,
     SQLiteMatrixCache,
     SQLitePlanRepository,
     SQLiteScenarioRepository,
 )
-from backend.app.routing import RoutingProvider, google_provider_from_settings
+from backend.app.routing import RoutingLimits, RoutingProvider, google_provider_from_settings
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -32,13 +33,18 @@ def get_request_id(request: Request) -> str:
 RequestIdDependency = Annotated[str, Depends(get_request_id)]
 
 
-def get_database(request: Request, settings: SettingsDependency) -> SQLiteDatabase:
-    """Return a shared local SQLite database handle."""
-    database = getattr(request.app.state, "database", None)
+def database_for_app(app: FastAPI, settings: Settings) -> SQLiteDatabase:
+    """Return the application's shared SQLite handle, creating it on first use."""
+    database = getattr(app.state, "database", None)
     if database is None:
         database = SQLiteDatabase(settings.database_path)
-        request.app.state.database = database
+        app.state.database = database
     return cast(SQLiteDatabase, database)
+
+
+def get_database(request: Request, settings: SettingsDependency) -> SQLiteDatabase:
+    """Return a shared local SQLite database handle."""
+    return database_for_app(request.app, settings)
 
 
 DatabaseDependency = Annotated[SQLiteDatabase, Depends(get_database)]
@@ -82,6 +88,15 @@ def get_matrix_cache(database: DatabaseDependency) -> SQLiteMatrixCache:
 MatrixCacheDependency = Annotated[SQLiteMatrixCache, Depends(get_matrix_cache)]
 
 
+def routing_limits_from_settings(settings: Settings) -> RoutingLimits:
+    """Matrix batching limits shared by the Google adapter and the estimator."""
+    return RoutingLimits(
+        maximum_origins=settings.routes_max_origins,
+        maximum_destinations=settings.routes_max_destinations,
+        maximum_elements=settings.routes_max_elements,
+    )
+
+
 def get_routing_service(
     provider: RoutingProviderDependency,
     cache: MatrixCacheDependency,
@@ -93,10 +108,38 @@ def get_routing_service(
         cache,
         cache_ttl_seconds=settings.matrix_cache_ttl_seconds,
         departure_bucket_minutes=settings.matrix_departure_bucket_minutes,
+        limits=routing_limits_from_settings(settings),
     )
 
 
 RoutingServiceDependency = Annotated[RoutingService, Depends(get_routing_service)]
+
+
+def get_geocode_cache(
+    database: DatabaseDependency, settings: SettingsDependency
+) -> SQLiteGeocodeCache:
+    """Return the 30-day address-resolution cache."""
+    return SQLiteGeocodeCache(database, ttl_seconds=settings.geocode_cache_ttl_seconds)
+
+
+GeocodeCacheDependency = Annotated[SQLiteGeocodeCache, Depends(get_geocode_cache)]
+
+
+def get_location_service(
+    provider: RoutingProviderDependency,
+    cache: GeocodeCacheDependency,
+    settings: SettingsDependency,
+) -> LocationService:
+    """Create the address-resolution service for this request."""
+    return LocationService(
+        provider,
+        cache,
+        max_plant_distance_km=settings.geocode_max_plant_distance_km,
+        max_concurrency=settings.geocode_max_concurrency,
+    )
+
+
+LocationServiceDependency = Annotated[LocationService, Depends(get_location_service)]
 
 
 def get_planning_service(request: Request, settings: SettingsDependency) -> PlanningService:

@@ -16,6 +16,11 @@ from backend.app.domain.enums import (
     ValidationCode,
     ValidationSeverity,
 )
+from backend.app.domain.geocoding import (
+    GEOCODE_MAX_AGE_SECONDS,
+    fingerprint_matches_address,
+    geocode_is_expired,
+)
 from backend.app.domain.import_contract import (
     ImportMappingError,
     map_task_import_row,
@@ -165,21 +170,82 @@ def _date_boundary_for_value(
     return None
 
 
-def _parse_collection(
+def _parse_collection[ModelT: (Location, Vehicle)](
     values: Any,
-    model_type: type[Location] | type[Vehicle],
+    model_type: type[ModelT],
     label: str,
-) -> tuple[list[Location | Vehicle], list[ValidationIssue]]:
-    parsed: list[Location | Vehicle] = []
+) -> tuple[list[tuple[int, ModelT]], list[ValidationIssue]]:
+    """Parse list rows, returning each valid model with its row number."""
+    parsed: list[tuple[int, ModelT]] = []
     issues: list[ValidationIssue] = []
     if not isinstance(values, list):
         return parsed, [_issue(ValidationCode.INVALID_VALUE, f"{label} must be a list.")]
     for index, value in enumerate(values, start=2):
         try:
-            parsed.append(model_type.model_validate(value))
+            parsed.append((index, model_type.model_validate(value)))
         except ValidationError as exc:
             issues.extend(_validation_issues(exc, row_number=index, prefix=label))
     return parsed, issues
+
+
+def _geocode_freshness_issues(
+    location_rows: Sequence[tuple[int, Location]],
+    *,
+    now: datetime,
+    max_age_seconds: int,
+) -> list[ValidationIssue]:
+    """Warn about coordinates that no longer belong to their address or are too old.
+
+    Coordinates without a fingerprint were supplied directly (Version 1.0 JSON) and are
+    trusted as before; only address-derived coordinates carry provenance to check.
+    """
+    issues: list[ValidationIssue] = []
+    max_age_days = max_age_seconds / 86_400
+    for row_number, location in location_rows:
+        if location.latitude is None:
+            continue
+        fingerprint = location.geocode_source_fingerprint
+        if fingerprint is not None and not fingerprint_matches_address(
+            fingerprint, location.address
+        ):
+            issues.append(
+                _issue(
+                    ValidationCode.STALE_GEOCODE,
+                    f"Location {location.location_id} has coordinates that were found for a "
+                    "different address. Resolve its address again before calculating "
+                    "travel times.",
+                    severity=ValidationSeverity.WARNING,
+                    row_number=row_number,
+                    field="locations.geocode_source_fingerprint",
+                )
+            )
+            continue
+        if location.geocoded_at is not None:
+            if geocode_is_expired(location.geocoded_at, now, max_age_seconds):
+                issues.append(
+                    _issue(
+                        ValidationCode.GEOCODE_EXPIRED,
+                        f"Location {location.location_id} was resolved more than "
+                        f"{max_age_days:g} days ago. Resolve its address again before "
+                        "calculating travel times.",
+                        severity=ValidationSeverity.WARNING,
+                        row_number=row_number,
+                        field="locations.geocoded_at",
+                    )
+                )
+        elif fingerprint is not None:
+            issues.append(
+                _issue(
+                    ValidationCode.GEOCODE_EXPIRED,
+                    f"Location {location.location_id} has resolved coordinates without a "
+                    "geocoded_at time, so their age cannot be checked. Resolve its address "
+                    "again before calculating travel times.",
+                    severity=ValidationSeverity.WARNING,
+                    row_number=row_number,
+                    field="locations.geocoded_at",
+                )
+            )
+    return issues
 
 
 def _parse_horizon(
@@ -535,8 +601,17 @@ def _business_rule_issues(
     return issues
 
 
-def validate_planning_payload(payload: Mapping[str, Any]) -> ValidationResult:
-    """Normalize a planning payload and return all actionable validation issues."""
+def validate_planning_payload(
+    payload: Mapping[str, Any],
+    *,
+    now: datetime | None = None,
+    geocode_max_age_seconds: int = GEOCODE_MAX_AGE_SECONDS,
+) -> ValidationResult:
+    """Normalize a planning payload and return all actionable validation issues.
+
+    ``now`` and ``geocode_max_age_seconds`` only affect the warnings about expired
+    address-derived coordinates; they default to the current time and 30 days.
+    """
     issues: list[ValidationIssue] = []
     timezone_name = str(payload.get("timezone", "America/Toronto"))
     try:
@@ -553,16 +628,23 @@ def validate_planning_payload(payload: Mapping[str, Any]) -> ValidationResult:
     )
     issues.extend(horizon_issues)
 
-    locations_raw, location_issues = _parse_collection(
+    location_rows, location_issues = _parse_collection(
         payload.get("locations", []), Location, "locations"
     )
-    vehicles_raw, vehicle_issues = _parse_collection(
+    vehicle_rows, vehicle_issues = _parse_collection(
         payload.get("vehicles", []), Vehicle, "vehicles"
     )
-    locations = [value for value in locations_raw if isinstance(value, Location)]
-    vehicles = [value for value in vehicles_raw if isinstance(value, Vehicle)]
+    locations = [location for _, location in location_rows]
+    vehicles = [vehicle for _, vehicle in vehicle_rows]
     issues.extend(location_issues)
     issues.extend(vehicle_issues)
+    issues.extend(
+        _geocode_freshness_issues(
+            location_rows,
+            now=(now or datetime.now(UTC)).astimezone(UTC),
+            max_age_seconds=geocode_max_age_seconds,
+        )
+    )
 
     plant_location_id = str(payload.get("plant_location_id", "PLANT"))
     shifts, shift_issues = _parse_shifts(

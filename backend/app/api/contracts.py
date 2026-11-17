@@ -7,7 +7,15 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from backend.app.domain.enums import RoutingPreference, TravelMode
+from backend.app.application.location_service import LocationResolution
+from backend.app.domain.enums import (
+    GeocodeLocationType,
+    GeocodeReasonCode,
+    GeocodeStatus,
+    RoutingPreference,
+    TravelMode,
+)
+from backend.app.domain.geocoding import normalize_region_code
 from backend.app.domain.models import RoutingMatrix, ensure_aware_utc
 from backend.app.domain.results import PlanResult, ValidationResult
 from backend.app.routing.base import RoutingLocation, RoutingOptions
@@ -151,6 +159,208 @@ class MatrixComputeResponse(BaseModel):
     matrix: RoutingMatrix
     cache_hit: bool
     cache_key: str
+
+
+class MatrixEstimateRequest(BaseModel):
+    """Request body for estimating a route matrix before any billable call."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    locations: tuple[RoutingLocationPayload, ...] = Field(min_length=1, max_length=100)
+    options: RoutingOptionsPayload = Field(default_factory=RoutingOptionsPayload)
+
+    @field_validator("locations")
+    @classmethod
+    def location_ids_are_unique(
+        cls, value: tuple[RoutingLocationPayload, ...]
+    ) -> tuple[RoutingLocationPayload, ...]:
+        if len({location.location_id for location in value}) != len(value):
+            raise ValueError("location IDs must be unique")
+        return value
+
+
+class MatrixEstimateResponse(BaseModel):
+    """Billable size of a matrix and whether the cache already holds it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    location_count: int
+    element_count: int
+    request_count: int
+    maximum_elements_per_request: int
+    cache_hit: bool
+    cache_key: str
+    billable_element_count: int
+    billable_request_count: int
+    confirmation_threshold_elements: int
+    confirmation_required: bool
+
+
+class AddressToResolvePayload(BaseModel):
+    """One planner location to resolve."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    location_id: str = Field(
+        min_length=1,
+        max_length=120,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
+    address: str = Field(min_length=1, max_length=500)
+    confirmed_place_id: str | None = Field(default=None, min_length=1, max_length=500)
+
+    @field_validator("address")
+    @classmethod
+    def address_is_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("address must not be blank")
+        return value
+
+
+class PlantCoordinatesPayload(BaseModel):
+    """Known plant coordinates, used only for the far-from-plant check."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
+class LocationResolveRequest(BaseModel):
+    """Request body for resolving addresses by location ID."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    locations: tuple[AddressToResolvePayload, ...] = Field(min_length=1, max_length=5_000)
+    plant_location_id: str | None = Field(default=None, min_length=1, max_length=120)
+    plant_coordinates: PlantCoordinatesPayload | None = None
+    region_code: str | None = Field(
+        default=None,
+        max_length=2,
+        description=(
+            "Two-letter region bias. Omit to use the server default; send an empty "
+            "string for no bias."
+        ),
+    )
+    force_refresh: bool = False
+
+    @field_validator("locations")
+    @classmethod
+    def location_ids_are_unique(
+        cls, value: tuple[AddressToResolvePayload, ...]
+    ) -> tuple[AddressToResolvePayload, ...]:
+        if len({location.location_id for location in value}) != len(value):
+            raise ValueError("location IDs must be unique")
+        return value
+
+    @field_validator("region_code")
+    @classmethod
+    def region_code_is_valid(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return normalize_region_code(value) or ""
+
+
+class LocationResolutionPayload(BaseModel):
+    """Classified resolution for one location ID."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    location_id: str
+    status: GeocodeStatus
+    reason_code: GeocodeReasonCode | None
+    reason_codes: tuple[GeocodeReasonCode, ...]
+    message: str
+    formatted_address: str | None
+    alternatives: tuple[str, ...]
+    place_id: str | None
+    latitude: float | None
+    longitude: float | None
+    location_type: GeocodeLocationType | None
+    partial_match: bool | None
+    geocode_source_fingerprint: str | None
+    geocoded_at: datetime | None
+    geocode_confirmed: bool
+    duplicate_of: tuple[str, ...]
+    distance_from_plant_km: float | None
+    cache_hit: bool
+
+    @classmethod
+    def from_domain(cls, result: LocationResolution) -> LocationResolutionPayload:
+        return cls(
+            location_id=result.location_id,
+            status=result.status,
+            reason_code=result.reason_code,
+            reason_codes=result.reason_codes,
+            message=result.message,
+            formatted_address=result.formatted_address,
+            alternatives=result.alternatives,
+            place_id=result.place_id,
+            latitude=result.latitude,
+            longitude=result.longitude,
+            location_type=result.location_type,
+            partial_match=result.partial_match,
+            geocode_source_fingerprint=result.geocode_source_fingerprint,
+            geocoded_at=result.geocoded_at,
+            geocode_confirmed=result.geocode_confirmed,
+            duplicate_of=result.duplicate_of,
+            distance_from_plant_km=result.distance_from_plant_km,
+            cache_hit=result.cache_hit,
+        )
+
+
+class ResolveSummaryPayload(BaseModel):
+    """Counts for one resolve request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    resolved: int
+    needs_review: int
+    failed: int
+    cache_hits: int
+    provider_calls: int
+    unique_addresses: int
+    plant_distance_checked: bool
+
+
+class LocationResolveResponse(BaseModel):
+    """Per-location results in request order, plus a summary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    region_code: str | None
+    results: tuple[LocationResolutionPayload, ...]
+    summary: ResolveSummaryPayload
+
+
+class ConfigLimitsPayload(BaseModel):
+    """Request limits the UI should respect before sending."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_request_bytes: int
+    max_locations: int
+    max_tasks: int
+    max_resolve_addresses: int
+    max_matrix_locations: int
+
+
+class ConfigResponse(BaseModel):
+    """Non-secret settings the UI needs; never includes credentials."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    default_timezone: str
+    google_maps_configured: bool
+    geocode_region_code: str | None
+    geocode_cache_ttl_seconds: int
+    geocode_max_plant_distance_km: float
+    matrix_confirm_elements: int
+    solver_time_limit_seconds: int
+    limits: ConfigLimitsPayload
 
 
 class PlanValidationResponse(BaseModel):

@@ -2,6 +2,8 @@
 
 from backend.app.domain.enums import (
     DueEvent,
+    GeocodeLocationType,
+    GeocodeReasonCode,
     GeocodeStatus,
     PlanStatus,
     RoutingPreference,
@@ -36,6 +38,8 @@ from backend.app.domain.validation import (
 
 __all__ = [
     "DueEvent",
+    "GeocodeLocationType",
+    "GeocodeReasonCode",
     "GeocodeStatus",
     "Location",
     "MatrixElementIssue",

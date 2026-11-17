@@ -23,7 +23,28 @@ class GeocodeStatus(StrEnum):
 
     PENDING = "PENDING"
     RESOLVED = "RESOLVED"
+    NEEDS_REVIEW = "NEEDS_REVIEW"
     FAILED = "FAILED"
+
+
+class GeocodeLocationType(StrEnum):
+    """Precision of a geocoded point, in Google's vocabulary."""
+
+    ROOFTOP = "ROOFTOP"
+    RANGE_INTERPOLATED = "RANGE_INTERPOLATED"
+    GEOMETRIC_CENTER = "GEOMETRIC_CENTER"
+    APPROXIMATE = "APPROXIMATE"
+
+
+class GeocodeReasonCode(StrEnum):
+    """Why an address resolution needs review, failed, or carries a note."""
+
+    PARTIAL_MATCH = "PARTIAL_MATCH"
+    LOW_PRECISION = "LOW_PRECISION"
+    MULTIPLE_MATCHES = "MULTIPLE_MATCHES"
+    FAR_FROM_PLANT = "FAR_FROM_PLANT"
+    ADDRESS_NOT_FOUND = "ADDRESS_NOT_FOUND"
+    DUPLICATE_PLACE = "DUPLICATE_PLACE"
 
 
 class TravelMode(StrEnum):
@@ -94,3 +115,5 @@ class ValidationCode(StrEnum):
     DATE_ONLY_DEADLINE_NORMALIZED = "DATE_ONLY_DEADLINE_NORMALIZED"
     SHIFT_OVERLAP = "SHIFT_OVERLAP"
     MATRIX_LOCATION_MISMATCH = "MATRIX_LOCATION_MISMATCH"
+    STALE_GEOCODE = "STALE_GEOCODE"
+    GEOCODE_EXPIRED = "GEOCODE_EXPIRED"

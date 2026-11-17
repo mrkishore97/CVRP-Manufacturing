@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from backend.app.domain.enums import RoutingPreference, TravelMode
+from backend.app.domain.enums import GeocodeLocationType, RoutingPreference, TravelMode
 from backend.app.domain.models import RoutingMatrix
 
 
@@ -35,6 +35,37 @@ class RoutingOptions:
             raise ValueError("Routing departure_time must be timezone-aware")
 
 
+@dataclass(frozen=True, slots=True)
+class GeocodeCandidate:
+    """One place the provider matched an address to, with its match quality."""
+
+    formatted_address: str
+    latitude: float
+    longitude: float
+    place_id: str | None = None
+    location_type: GeocodeLocationType | None = None
+    partial_match: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class AddressResolution:
+    """Every candidate the provider returned for one address, best first.
+
+    No candidates means the address was not found. That is a row-level outcome, not
+    an error: provider failures (bad key, quota, network) raise instead.
+    """
+
+    candidates: tuple[GeocodeCandidate, ...] = ()
+
+    @property
+    def found(self) -> bool:
+        return bool(self.candidates)
+
+    @property
+    def best(self) -> GeocodeCandidate | None:
+        return self.candidates[0] if self.candidates else None
+
+
 RouteMatrix = RoutingMatrix
 
 
@@ -51,7 +82,16 @@ class RoutingProvider(Protocol):
     """Interface implemented by fake and external routing providers."""
 
     async def geocode(self, addresses: Sequence[str]) -> tuple[RoutingLocation, ...]:
-        """Resolve addresses while preserving request order."""
+        """Resolve addresses while preserving request order (Version 1.0 contract)."""
+        ...
+
+    async def resolve_address(
+        self,
+        address: str,
+        *,
+        region_code: str | None = None,
+    ) -> AddressResolution:
+        """Return every candidate for one address, biased towards ``region_code``."""
         ...
 
     async def compute_matrix(

@@ -16,6 +16,11 @@ from backend.app.routing.base import (
     RoutingOptions,
     RoutingProvider,
 )
+from backend.app.routing.estimator import (
+    MatrixRequestEstimate,
+    RoutingLimits,
+    estimate_matrix_request,
+)
 
 NowFunction = Callable[[], datetime]
 
@@ -25,6 +30,15 @@ class MatrixComputationResult:
     """Matrix plus cache metadata useful to APIs and planner UI."""
 
     matrix: RoutingMatrix
+    cache_hit: bool
+    cache_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class MatrixEstimateResult:
+    """What a matrix calculation would cost, worked out without calling the provider."""
+
+    estimate: MatrixRequestEstimate
     cache_hit: bool
     cache_key: str
 
@@ -39,6 +53,7 @@ class RoutingService:
         *,
         cache_ttl_seconds: int = 86_400,
         departure_bucket_minutes: int = 60,
+        limits: RoutingLimits | None = None,
         now: NowFunction | None = None,
     ) -> None:
         if cache_ttl_seconds <= 0:
@@ -49,11 +64,38 @@ class RoutingService:
         self._cache = cache
         self._cache_ttl_seconds = cache_ttl_seconds
         self._departure_bucket_minutes = departure_bucket_minutes
+        self._limits = limits or RoutingLimits()
         self._now = now or (lambda: datetime.now(UTC))
 
     async def geocode(self, addresses: Sequence[str]) -> tuple[RoutingLocation, ...]:
         """Resolve addresses through the selected provider."""
         return await self._provider.geocode(addresses)
+
+    def _matrix_cache_key(
+        self,
+        locations: Sequence[RoutingLocation],
+        options: RoutingOptions,
+    ) -> str:
+        return build_matrix_cache_key(
+            provider_name=self._provider.provider_name,
+            locations=locations,
+            options=options,
+            departure_bucket_minutes=self._departure_bucket_minutes,
+        )
+
+    def estimate_matrix(
+        self,
+        locations: Sequence[RoutingLocation],
+        options: RoutingOptions,
+    ) -> MatrixEstimateResult:
+        """Count billable elements and requests, and check the cache; no provider call."""
+        cache_key = self._matrix_cache_key(locations, options)
+        cached = self._cache.get(cache_key, now=self._now().astimezone(UTC))
+        return MatrixEstimateResult(
+            estimate=estimate_matrix_request(len(locations), self._limits, options),
+            cache_hit=cached is not None,
+            cache_key=cache_key,
+        )
 
     async def compute_matrix(
         self,
@@ -63,12 +105,7 @@ class RoutingService:
         force_refresh: bool = False,
     ) -> MatrixComputationResult:
         """Return a cached matrix or calculate and persist a complete replacement."""
-        cache_key = build_matrix_cache_key(
-            provider_name=self._provider.provider_name,
-            locations=locations,
-            options=options,
-            departure_bucket_minutes=self._departure_bucket_minutes,
-        )
+        cache_key = self._matrix_cache_key(locations, options)
         now = self._now().astimezone(UTC)
         if not force_refresh:
             cached = self._cache.get(cache_key, now=now)

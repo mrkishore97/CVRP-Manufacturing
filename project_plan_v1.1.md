@@ -2,7 +2,7 @@
 
 **Plan revision:** 2 — rewritten from scratch; replaces the obsolete draft dated 2026-07-16  
 **Date:** 2026-11-16  
-**Status:** Decisions D1–D5 settled on 2026-11-16; D6 open (needed before M3). V1.1-M0 complete (build log, Build 014; committed on branch `v1.1`)  
+**Status:** Decisions D1–D5 settled on 2026-11-16; D6 open (needed before M3). V1.1-M0 complete (Build 014) and V1.1-M1 complete (Build 015) on branch `v1.1`  
 **Baseline:** tag `v1.0.0` (`2d93b2d`) — 143 automated tests passing when re-run on 2026-11-16  
 **Related records:** `project_plan.md` (Version 1.0 plan, stays unchanged), `build_log.md`
 
@@ -44,6 +44,7 @@ The plan is built on a review of the actual code, not on the Version 1.0 plan's 
 | F16 | The frontend/backend boundary test scans only `frontend/*.py`, so new frontend sub-packages would escape it. | `backend/tests/unit/test_package_boundaries.py:35` | Recursive scan (M0) |
 | F17 | The solve endpoint runs the CPU-bound solver on the API event loop, freezing every other request (including health) during a solve. | `backend/app/api/routes/plans.py:143` | Run solves off the event loop (M5) |
 | F18 | Google usage terms: geocoded coordinates may be cached for at most 30 days, and geocoding results shown on a map must be shown on a Google map. Version 1.1 makes every coordinate Google-derived, while the route map is Folium/OpenStreetMap. | Google policy pages (§13.4) | Decision D1/D2 (§4), TTL design (§8.6) |
+| F19 | *Found in V1.1-M1.* httpx logs every request URL at INFO, and Geocoding URLs carry the API key and the raw address in the query string, so at the default `LOG_LEVEL=INFO` both reached the backend log. | `backend/app/routing/google.py` (query `key`); `backend/app/logging_config.py`; reproduced by a test on 2026-11-16 | Transport loggers limited to warnings (fixed in M1) |
 
 ## 3. Scope
 
@@ -318,6 +319,14 @@ POST /api/v1/locations/resolve
 ```
 
 Service steps (`application/location_service.py`): normalise and fingerprint each address → collapse duplicates → answer from the cache → call the provider for the rest with bounded concurrency → classify → map every result back to the caller's location IDs, in request order.
+
+As built in M1 (additive to the example above):
+
+- **Request:** each row may carry `confirmed_place_id` (the place the planner already accepted). `plant_coordinates` may be sent when the plant is not in the batch, because only new or changed addresses are sent. `region_code` omitted means the server default; an empty string means no bias.
+- **Result row:** `reason_codes` lists every applicable reason, primary first, and `reason_code` is the first of them. `duplicate_of` names the other location IDs at the same place. `distance_from_plant_km` and `geocode_confirmed` are included.
+- **Summary:** adds `unique_addresses` and `plant_distance_checked`; the far-from-plant rule is skipped, and reported as skipped, when no plant coordinates are known.
+- **Fingerprint format:** `v1:<region>:<sha256>`, self-describing, so validation can check it without knowing which region was used.
+- **`/matrices/estimate`:** returns `element_count`, `request_count`, `cache_hit`, `billable_element_count`, `billable_request_count` (both zero on a cache hit), and `confirmation_required` (billable elements above `MATRIX_CONFIRM_ELEMENTS`).
 
 ### 8.4 Classification rules
 
@@ -618,7 +627,7 @@ Eight milestones. The two must-have outcomes land in M3 (address-only) and M4 (f
 | Milestone | Outcome | Size | Status |
 |---|---|---|---|
 | V1.1-M0 | Baseline, decisions, safety net | S | Complete |
-| V1.1-M1 | Backend address resolution | M | Pending |
+| V1.1-M1 | Backend address resolution | M | Complete |
 | V1.1-M2 | Frontend foundation; JSON workflow on the new state model | M | Pending |
 | V1.1-M3 | Scenario, plant, locations, travel times — address-only end to end | M | Pending |
 | V1.1-M4 | Fleet, shifts, tasks, import, review — forms complete | L | Pending |
@@ -913,4 +922,4 @@ Nothing requested was dropped. Bulk grid editing, incremental matrix refresh, a 
 
 ## 21. Immediate next step
 
-V1.1-M0 is complete and committed on branch `v1.1` (build log, Build 014). Next: settle D6 (before M3), then start **V1.1-M1** — backend address resolution.
+V1.1-M0 (Build 014) and V1.1-M1 (Build 015) are complete on branch `v1.1`. Next: **V1.1-M2** — frontend foundation; settle D6 before M3.
