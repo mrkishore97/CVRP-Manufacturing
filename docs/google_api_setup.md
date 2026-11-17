@@ -82,6 +82,35 @@ coordinates, or full provider responses.
 - The app default maximum route-matrix element count is 625, matching the
   documented Compute Route Matrix cap for a request.
 
+## Google usage terms that shape Version 1.1
+
+Re-read on 2026-11-16 for milestone V1.1-M0. This section records how the app is designed
+around the terms; it is not legal advice. Re-check the live pages before each release,
+because wording and section numbers change.
+
+Sources:
+
+- [Geocoding API policies](https://developers.google.com/maps/documentation/geocoding/policies) — read directly.
+- [Routes API policies](https://developers.google.com/maps/documentation/routes/policies) — read directly.
+- [Google Maps Platform Service Specific Terms](https://cloud.google.com/maps-platform/terms/maps-service-terms)
+  — the binding text. Automated fetching returned no content on 2026-11-16, so the clauses
+  below marked *(terms, via search)* come from search-engine excerpts of this page and must
+  be confirmed by reading it in a browser.
+- [Google Maps Platform Terms of Service](https://cloud.google.com/maps-platform/terms) — Google
+  Maps Content may be cached only as the Service Specific Terms expressly permit.
+
+| Rule | Status | How Version 1.1 complies |
+|---|---|---|
+| Geocoding latitude/longitude may be cached for at most 30 consecutive calendar days, then deleted. | Policy page, read directly | Decision D2: geocode cache and stored coordinates carry `geocoded_at`; anything older than 30 days is not used and is re-resolved (plan §8.6). |
+| Place IDs may be stored indefinitely. | Policy page, read directly | Place IDs are kept with each location. |
+| Geocoding API content must not be used in conjunction with a non-Google map. | *(terms, via search)* | Decision D1: Google-derived locations are shown only through Google — an "Open route in Google Maps" link per truck, and an embedded Google map only if a separate browser-restricted embed key is configured. The Folium/OpenStreetMap map remains only for scenarios whose coordinates were supplied in JSON (such as the samples). |
+| Routes API latitude/longitude may be cached for at most 30 days. | *(terms, via search)* | Same 30-day ceiling as geocodes. |
+| Routes API distances and durations: no express permission to cache was found; the policy page lists "distance matrix results" among content not to bulk-download or store outside the Services. | Policy page read directly; terms not readable | **Open decision D6** (plan §4). Version 1.0 keeps a 24-hour matrix cache and stores matrices inside saved scenarios. M0 does not change this behaviour; the decision is needed before V1.1-M3. |
+| Content shown in the app needs Google attribution unless it is on a Google map that already shows it. | Policy pages, read directly | Results that show Google-derived data carry a "Travel times and addresses: Google" attribution (M6). |
+
+Google's support pages state they cannot give legal advice; consult legal counsel before a
+production deployment.
+
 ## Failure handling
 
 Common recovery actions:

@@ -1,0 +1,15 @@
+{
+  "description": "Frozen Version 1.0 planning payloads and their default-option results. Never edit these files; see README.md.",
+  "frozen_from": "v1.0.0",
+  "frozen_on": "2026-11-16",
+  "hash_algorithm": "sha256 of JSON with sorted keys and compact separators",
+  "files": {
+    "scenario_a.json": "87a07ba10a1494dd2e6807814ebe04f7e2876a9ea4f7a1a4f4ad48ba4f5b9413",
+    "scenario_b.json": "c46ff6958c5e5c981761f87fccfd6afb5a3d3cfe6734f79b17a0324324cd6aab",
+    "scenario_c.json": "72859f2f17a2b678be328b1d5c792acb2a422af2c6cf150e7baa65d403b5543f",
+    "scenario_d.json": "de52ce2a184be6359fba0fcefc4690f7ac9d006ac33ce9c6e6e03e6297f7a63e",
+    "scenario_e.json": "3af5ce1c715fb8c1a0c0bf1e745d9adef0cc43d62fd2af41be80f11477c3cda5",
+    "scenario_f.json": "9d2eeca99adb3f821f43dfe8c5c1156b8b6a804e3ed2e79474b697339ce788f1",
+    "expected_default_results.json": "8ee508d9f82dd14d8942f0eed44825c4565f96b5b33137ff20b34893c3462a61"
+  }
+}

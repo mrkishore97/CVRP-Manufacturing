@@ -1,9 +1,9 @@
 # Manufacturing PO Route Optimizer — Build Log
 
 **Purpose:** Chronological implementation and verification record  
-**Project plan:** `project_plan.md`  
+**Project plan:** `project_plan.md` (Version 1.0); `project_plan_v1.1.md` (Version 1.1, from Build 014)  
 **Started:** 2026-06-21  
-**Current milestone:** Version 1 baseline complete (`v1.0.0`)
+**Current milestone:** Version 1.1 — V1.1-M0 complete on branch `v1.1`; next V1.1-M1
 
 ## Logging rules
 
@@ -956,3 +956,105 @@
 ### Next action
 
 - Version 1 is ready for user acceptance. If this folder is imported into Git, create the `v1.0.0` tag on the passing baseline.
+
+---
+
+## 2026-11-16 — Build 014 — V1.1-M0 — Baseline, decisions, safety net
+
+Plan: `project_plan_v1.1.md` §14, V1.1-M0. Rule 8 above now refers to that plan for Version 1.1 milestones.
+
+### Scope
+
+- Record the Version 1.1 decisions and the Version 1.0 baseline.
+- Housekeeping fixes F8 (3-second client timeout), F15 (version drift), F16 (boundary test), explicit `tzdata`.
+- Safety net: frozen Version 1.0 payloads and default-option characterization tests.
+- Re-read Google usage terms; write the D1/D2 conclusions into `docs/google_api_setup.md`.
+- No feature behaviour changes.
+
+### Decisions (accepted by the user on 2026-11-16 — "Accept defaults")
+
+| # | Decision | Outcome |
+|---|---|---|
+| D1 | Showing Google-derived locations on a map | Google only: "Open route in Google Maps" link per truck; embedded Google map only if an embed key is provided. Folium stays for JSON-supplied coordinates. |
+| D2 | Retention of Google data | Enforce the 30-day coordinate rule; review matrix persistence in M0 and change only if required. |
+| D3 | Priority scale | 1 Routine (default), 2 Normal, 3 Important, 4 High, 5 Critical; omission weights 1/2/4/8/16. |
+| D4 | Local defaults | Country bias `ca`; unit label "units". |
+| D5 | Default objective | Keep "fewest trucks" (`MINIMIZE_TRUCKS`). |
+| D6 | Persistence of Google travel-time matrices (new, from the D2 review below) | **Open — user decision needed before V1.1-M3.** Recommended: stop persisting Google-sourced matrices. Added to plan §4. |
+
+### Baseline (before any change)
+
+- Branch `v1.1` created from tag `v1.0.0` (`2d93b2d`).
+- `ruff format --check`: 88 files formatted; `ruff check`: pass; `mypy backend frontend`: 82 files, no issues; `pytest -q`: **143 passed**, 3 OR-Tools/SWIG deprecation warnings; `validate_m0.py`: pass; `validate_m9_release.py`: pass.
+- Version 1.0 default results measured through `POST /api/v1/plans/solve` (two runs, identical; each solve under 0.15 s):
+
+| Scenario | Result | Truck-shifts used | Distance |
+|---|---|---|---|
+| A | FEASIBLE, 6/6 tasks | 1 (TRUCK-1, day 1) | 216 km |
+| B | HTTP 422 `PLANNING_VALIDATION_FAILED` / `CAPACITY_EXCEEDED` | — | — |
+| C | INFEASIBLE, `DEADLINE_IMPOSSIBLE_INDIVIDUALLY` | 0 | 0 km |
+| D | PARTIALLY_FEASIBLE, TASK-SHORT-004 unscheduled, `INSUFFICIENT_COMBINED_FLEET_TIME` | 3 | 191 km |
+| E | FEASIBLE, 1/1 | 1 | 73 km |
+| F | FEASIBLE, 2/2 | 2 (TRUCK-1, both days) | 120 km |
+
+### Changes
+
+- `VERSION` is now the single version source (F15). `pyproject.toml` declares `dynamic = ["version"]` read from `VERSION`; `backend/__init__.py` reads `VERSION` in a source checkout and falls back to package metadata when installed. The health endpoint and OpenAPI now report `1.0.0` (previously `0.1.0`). The editable install was refreshed (`pip install -e . --no-deps`); package metadata now reports `1.0.0` (it reported `0.1.0`).
+- `pyproject.toml`: `tzdata==2026.2` declared as a direct dependency (same version already installed through pandas).
+- `scripts/validate_m9_release.py`: the version check accepts a version read from `VERSION`; it still requires `VERSION` = `1.0.0` (replaced by a version-driven script in M7).
+- `frontend/api_client.py`: per-operation timeouts via the new `OperationTimeouts` (F8): health 3 s, validate 15 s, geocode 60 s, matrix 120 s, solve 60 s, plan/export/scenario calls 15 s; connecting is capped at 5 s so a stopped backend is still reported quickly. The unused `timeout_seconds` constructor argument was replaced by `timeouts`.
+- `backend/tests/unit/test_package_boundaries.py`: the frontend scan is recursive and parses imports, so a sub-package importing `backend`, `ortools`, or Google client libraries fails the test (F16). A self-test proves nested files are reached.
+- `sample_data/v1_0_compat/` (new, frozen): Version 1.0 planning payloads for A–F exactly as the Version 1.0 UI placed them in its JSON editor, `expected_default_results.json`, `manifest.json` (content hashes), and a README with the never-edit rule.
+- `backend/tests/integration/test_v1_0_characterization.py` (new): verifies the frozen files are unchanged, then requires each payload's status, scheduled and unscheduled tasks, truck-shifts used, total distance, and diagnostic codes to match Version 1.0, and every returned plan to pass the independent validator.
+- `backend/tests/unit/test_version.py` (new), `backend/tests/integration/test_health_api.py`, `frontend/tests/test_api_client.py`: tests for the version source, `tzdata`, and every operation's timeout.
+- `docs/google_api_setup.md`: new section "Google usage terms that shape Version 1.1".
+- `project_plan_v1.1.md`: D6 added to §4; §13.4 refreshed; M6 deliverables gain matrix persistence per D6 and Google attribution; M0 status updated.
+
+### Google terms review (D1, D2)
+
+- Read directly: Geocoding API policies and Routes API policies pages. Coordinates may be cached for at most 30 consecutive days; place IDs indefinitely; Google attribution is required when showing Google Maps Content unless it is on a Google map that already shows it.
+- Service Specific Terms: automated fetching returned no content. Search excerpts of the current page state that Geocoding API content must not be used in conjunction with a non-Google map (**D1 confirmed**) and that Routes API coordinates follow the same 30-day ceiling.
+- No express permission to cache Routes API distances or durations was found; the Routes policy page lists "distance matrix results" among content not to store outside the Services. Version 1.0 keeps a 24-hour matrix cache and stores matrices in saved scenarios. Recorded as **open decision D6**; M0 does not change the behaviour.
+- To do before release: confirm the excerpted clauses by reading the Service Specific Terms in a browser. Not legal advice.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| `python -m ruff format --check .` | PASS | 90 files already formatted. |
+| `python -m ruff check .` | PASS | All checks passed. |
+| `python -m mypy backend frontend` | PASS | No issues in 84 source files. |
+| `python -m pytest -q` | PASS | **179 passed** (143 baseline + 36 new); same 3 OR-Tools/SWIG warnings. |
+| Characterization tests | PASS | `test_v1_0_characterization.py`: 13 passed (A–F results, independent validation of 5 plans, frozen-file hashes, Version 1.0 key set). |
+| Timeout tests | PASS | Each of 9 client operations sends its own timeout; only health keeps 3 s; custom and invalid values handled. |
+| `python scripts/validate_m0.py` | PASS | 672 checks. |
+| `python scripts/validate_m9_release.py` | PASS | With the dynamic version declaration. |
+| `python scripts/review_m2_payloads.py` | PASS | Scenario B capacity diagnostic unchanged. |
+| `python scripts/smoke_m1.py` | PASS | Real FastAPI and Streamlit processes started without a Google key. |
+| `python -m pip check` | PASS | No broken requirements. |
+| `python scripts/clean_install_check.py` | Not run | Creates a fresh venv and downloads packages; the dynamic version was instead checked with `pip install -e . --no-deps` (metadata `1.0.0`). Run before the release (M7). |
+
+### Manual checks
+
+- UI against a live backend (uvicorn on :8010 with a throw-away database; real `frontend/streamlit_app.py` driven by Streamlit's `AppTest`, because the browser pane could not take clicks while hidden): backend banner "Connected to backend 1.0.0"; Load feasible sample → Validate payload → Use routing matrix from payload → Solve route plan → FEASIBLE, 216 km; route-stops CSV, diagnostics CSV, and XLSX export built; Save scenario → "Saved scenario A."; scenario reloaded and backend export retrieved through the client. PASS.
+- F1 observed on the live page: the only text input is the "Planning payload JSON" area (the read-only Fleet and Tasks tables were confirmed from code, `streamlit_app.py:398-418`, not by clicking through).
+- F2 confirmed at runtime: with latitude/longitude removed from Scenario A's locations, the UI's matrix step (`_routing_locations`) raises "Every location needs location_id, latitude, and longitude before matrix calculation."
+- F4 confirmed: Scenario A with `maximum_route_distance_meters` = 50,000 on every truck still returns FEASIBLE with a 216 km route, and the validator reports it valid.
+- F5 confirmed: in Scenario D, TASK-SHORT-004 is unscheduled whether its priority is 1 or 5 and whatever the other tasks' priorities are.
+- Live Google smoke test: not run (optional; no change touched the Google provider).
+
+### Known issues
+
+- OR-Tools/SWIG deprecation warnings remain (third-party, non-blocking).
+- D6 is open and must be settled before V1.1-M3.
+- `.env` was not read or changed.
+
+### Gate status
+
+- **V1.1-M0 COMPLETE.**
+- Baseline green: PASS. Decisions D1–D5 recorded: PASS; D6 open with a deadline (M3), which does not block M0.
+- Clean working tree: PASS — the milestone was committed on branch `v1.1` at the user's request (2026-11-16), including `project_plan_v1.1.md`.
+
+### Next action
+
+- Settle D6; start V1.1-M1 (backend address resolution).

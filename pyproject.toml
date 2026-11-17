@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "manufacturing-po-route-optimizer"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Deadline-aware manufacturing pickup and delivery route optimizer"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -19,6 +19,7 @@ dependencies = [
     "pydantic-settings==2.7.1",
     "streamlit==1.43.2",
     "streamlit-folium==0.24.0",
+    "tzdata==2026.2",
     "uvicorn==0.34.0",
 ]
 
@@ -30,6 +31,9 @@ dev = [
     "respx==0.22.0",
     "ruff==0.9.10",
 ]
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -149,6 +149,30 @@ class PlanSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class OperationTimeouts:
+    """Per-operation response timeouts in seconds.
+
+    One short timeout for every call made slower operations (address resolution, travel-time
+    matrices, solving) fail as "backend timed out" in normal use. Each operation now waits as
+    long as its work can reasonably take. Connecting is always capped at ``connect`` seconds so
+    a stopped backend is still reported quickly.
+    """
+
+    health: float = 3.0
+    validate: float = 15.0
+    geocode: float = 60.0
+    matrix: float = 120.0
+    solve: float = 60.0
+    standard: float = 15.0  # plan retrieval, export, and scenario save/load
+    connect: float = 5.0
+
+    def __post_init__(self) -> None:
+        for name in ("health", "validate", "geocode", "matrix", "solve", "standard", "connect"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} timeout must be positive")
+
+
+@dataclass(frozen=True, slots=True)
 class WorkflowResponse:
     """Combined raw and summarized response for validation/solve actions."""
 
@@ -164,14 +188,19 @@ class BackendClient:
     def __init__(
         self,
         base_url: str,
-        timeout_seconds: float = 3.0,
         transport: httpx.BaseTransport | None = None,
         default_headers: dict[str, str] | None = None,
+        timeouts: OperationTimeouts | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
-        self._timeout = timeout_seconds
+        self._timeouts = timeouts or OperationTimeouts()
         self._transport = transport
         self._default_headers = default_headers or {}
+
+    @property
+    def timeouts(self) -> OperationTimeouts:
+        """The per-operation timeouts this client applies."""
+        return self._timeouts
 
     @classmethod
     def from_environment(cls) -> BackendClient:
@@ -180,7 +209,7 @@ class BackendClient:
 
     def get_health(self) -> HealthStatus:
         """Return backend health or a safe, user-facing error."""
-        payload = self._request("GET", "/api/v1/health").payload
+        payload = self._request("GET", "/api/v1/health", timeout=self._timeouts.health).payload
         return HealthStatus.from_payload(payload)
 
     def geocode(self, addresses: list[str]) -> ApiResult:
@@ -189,6 +218,7 @@ class BackendClient:
             "POST",
             "/api/v1/locations/geocode",
             json_payload={"addresses": addresses},
+            timeout=self._timeouts.geocode,
         )
 
     def compute_matrix(
@@ -202,11 +232,17 @@ class BackendClient:
             "POST",
             "/api/v1/matrices/compute",
             json_payload={"locations": locations, "force_refresh": force_refresh},
+            timeout=self._timeouts.matrix,
         )
 
     def validate_plan(self, payload: dict[str, Any]) -> WorkflowResponse:
         """Validate a planning payload and summarize the response."""
-        result = self._request("POST", "/api/v1/plans/validate", json_payload=payload)
+        result = self._request(
+            "POST",
+            "/api/v1/plans/validate",
+            json_payload=payload,
+            timeout=self._timeouts.validate,
+        )
         return WorkflowResponse(
             raw=result.payload,
             request_id=result.request_id,
@@ -215,7 +251,12 @@ class BackendClient:
 
     def solve_plan(self, payload: dict[str, Any]) -> WorkflowResponse:
         """Solve a planning payload and summarize the response."""
-        result = self._request("POST", "/api/v1/plans/solve", json_payload=payload)
+        result = self._request(
+            "POST",
+            "/api/v1/plans/solve",
+            json_payload=payload,
+            timeout=self._timeouts.solve,
+        )
         return WorkflowResponse(
             raw=result.payload,
             request_id=result.request_id,
@@ -225,7 +266,7 @@ class BackendClient:
 
     def get_plan(self, plan_id: str) -> WorkflowResponse:
         """Retrieve a saved backend plan."""
-        result = self._request("GET", f"/api/v1/plans/{plan_id}")
+        result = self._request("GET", f"/api/v1/plans/{plan_id}", timeout=self._timeouts.standard)
         return WorkflowResponse(
             raw=result.payload,
             request_id=result.request_id,
@@ -234,28 +275,35 @@ class BackendClient:
 
     def export_plan(self, plan_id: str) -> ApiResult:
         """Return backend JSON export rows for a plan."""
-        return self._request("GET", f"/api/v1/plans/{plan_id}/export")
+        return self._request(
+            "GET", f"/api/v1/plans/{plan_id}/export", timeout=self._timeouts.standard
+        )
 
     def save_scenario(self, payload: dict[str, Any]) -> ApiResult:
         """Create or replace a scenario using the payload's scenario_id."""
-        return self._request("POST", "/api/v1/scenarios", json_payload=payload)
+        return self._request(
+            "POST", "/api/v1/scenarios", json_payload=payload, timeout=self._timeouts.standard
+        )
 
     def load_scenario(self, scenario_id: str) -> ApiResult:
         """Retrieve a saved scenario payload."""
-        return self._request("GET", f"/api/v1/scenarios/{scenario_id}")
+        return self._request(
+            "GET", f"/api/v1/scenarios/{scenario_id}", timeout=self._timeouts.standard
+        )
 
     def _request(
         self,
         method: str,
         path: str,
         *,
+        timeout: float,
         json_payload: dict[str, Any] | None = None,
     ) -> ApiResult:
         """Execute one JSON request and normalize backend/network failures."""
         try:
             with httpx.Client(
                 base_url=self._base_url,
-                timeout=self._timeout,
+                timeout=httpx.Timeout(timeout, connect=min(timeout, self._timeouts.connect)),
                 transport=self._transport,
                 headers=self._default_headers,
             ) as client:

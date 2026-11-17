@@ -60,8 +60,12 @@ def main() -> int:
     if version != "1.0.0":
         failures.append(f"VERSION must be 1.0.0, got {version!r}")
     pyproject = _read("pyproject.toml")
-    if 'version = "1.0.0"' not in pyproject:
-        failures.append("pyproject.toml project version must be 1.0.0")
+    # Since V1.1-M0 the package version is read from VERSION (single source of truth).
+    version_from_file = (
+        'dynamic = ["version"]' in pyproject and 'version = { file = "VERSION" }' in pyproject
+    )
+    if 'version = "1.0.0"' not in pyproject and not version_from_file:
+        failures.append("pyproject.toml project version must be 1.0.0 or read from VERSION")
 
     readme = _read("README.md")
     for required_link in REQUIRED_README_LINKS:

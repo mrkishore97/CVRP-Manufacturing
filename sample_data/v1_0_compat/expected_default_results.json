@@ -1,0 +1,92 @@
+{
+  "description": "Results of POST /api/v1/plans/solve with no options, measured on v1.0.0 on 2026-11-16. Characterization tests require every later version to reproduce them when no options are supplied.",
+  "scenarios": {
+    "A": {
+      "http_status": 200,
+      "status": "FEASIBLE",
+      "scheduled_task_ids": [
+        "TASK-DROP-001",
+        "TASK-DROP-002",
+        "TASK-PAIR-001",
+        "TASK-PAIR-002",
+        "TASK-PICK-001",
+        "TASK-PICK-002"
+      ],
+      "unscheduled_task_ids": [],
+      "truck_shifts_used": [
+        "TRUCK-1/TRUCK-1-20260622"
+      ],
+      "total_distance_meters": 216000,
+      "diagnostic_codes": []
+    },
+    "B": {
+      "http_status": 422,
+      "error_code": "PLANNING_VALIDATION_FAILED",
+      "issue_codes": [
+        "CAPACITY_EXCEEDED"
+      ]
+    },
+    "C": {
+      "http_status": 200,
+      "status": "INFEASIBLE",
+      "scheduled_task_ids": [],
+      "unscheduled_task_ids": [
+        "TASK-DEADLINE-001"
+      ],
+      "truck_shifts_used": [],
+      "total_distance_meters": 0,
+      "diagnostic_codes": [
+        "DEADLINE_IMPOSSIBLE_INDIVIDUALLY"
+      ]
+    },
+    "D": {
+      "http_status": 200,
+      "status": "PARTIALLY_FEASIBLE",
+      "scheduled_task_ids": [
+        "TASK-SHORT-001",
+        "TASK-SHORT-002",
+        "TASK-SHORT-003"
+      ],
+      "unscheduled_task_ids": [
+        "TASK-SHORT-004"
+      ],
+      "truck_shifts_used": [
+        "TRUCK-1/TRUCK-1-20260622",
+        "TRUCK-2/TRUCK-2-20260622",
+        "TRUCK-3/TRUCK-3-20260622"
+      ],
+      "total_distance_meters": 191000,
+      "diagnostic_codes": [
+        "INSUFFICIENT_COMBINED_FLEET_TIME"
+      ]
+    },
+    "E": {
+      "http_status": 200,
+      "status": "FEASIBLE",
+      "scheduled_task_ids": [
+        "TASK-PAIR-PRECEDENCE"
+      ],
+      "unscheduled_task_ids": [],
+      "truck_shifts_used": [
+        "TRUCK-1/TRUCK-1-20260622"
+      ],
+      "total_distance_meters": 73000,
+      "diagnostic_codes": []
+    },
+    "F": {
+      "http_status": 200,
+      "status": "FEASIBLE",
+      "scheduled_task_ids": [
+        "TASK-DAY-1",
+        "TASK-DAY-2"
+      ],
+      "unscheduled_task_ids": [],
+      "truck_shifts_used": [
+        "TRUCK-1/TRUCK-1-20260622",
+        "TRUCK-1/TRUCK-1-20260623"
+      ],
+      "total_distance_meters": 120000,
+      "diagnostic_codes": []
+    }
+  }
+}

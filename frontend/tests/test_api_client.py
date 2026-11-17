@@ -1,6 +1,7 @@
 """Frontend API-client behavior tests."""
 
 import json
+from collections.abc import Callable
 
 import httpx
 import pytest
@@ -11,7 +12,99 @@ from frontend.api_client import (
     BackendResponseError,
     BackendTimeoutError,
     BackendUnavailableError,
+    OperationTimeouts,
 )
+
+# A response body every client method accepts, so timeout tests can call any operation.
+_ANY_OPERATION_RESPONSE = {
+    "status": "ok",
+    "service": "backend",
+    "version": "1.0.0",
+    "environment": "test",
+    "validation": {"valid": True, "issues": []},
+    "plan": {"plan_id": "PLAN-1", "status": "FEASIBLE"},
+}
+
+_OPERATIONS: dict[str, Callable[[BackendClient], object]] = {
+    "health": lambda client: client.get_health(),
+    "validate": lambda client: client.validate_plan({"scenario_id": "S"}),
+    "geocode": lambda client: client.geocode(["100 Plant Road"]),
+    "matrix": lambda client: client.compute_matrix([{"location_id": "PLANT"}]),
+    "solve": lambda client: client.solve_plan({"scenario_id": "S"}),
+    "get_plan": lambda client: client.get_plan("PLAN-1"),
+    "export_plan": lambda client: client.export_plan("PLAN-1"),
+    "save_scenario": lambda client: client.save_scenario({"scenario_id": "S"}),
+    "load_scenario": lambda client: client.load_scenario("S"),
+}
+
+
+def _timeout_seen_by(
+    operation: Callable[[BackendClient], object],
+    timeouts: OperationTimeouts | None = None,
+) -> dict[str, float | None]:
+    seen: list[dict[str, float | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.extensions["timeout"])
+        return httpx.Response(200, json=_ANY_OPERATION_RESPONSE, request=request)
+
+    operation(
+        BackendClient(
+            "http://backend.test", transport=httpx.MockTransport(handler), timeouts=timeouts
+        )
+    )
+    assert len(seen) == 1
+    return seen[0]
+
+
+@pytest.mark.parametrize(
+    ("operation_name", "expected_seconds"),
+    [
+        ("health", 3.0),
+        ("validate", 15.0),
+        ("geocode", 60.0),
+        ("matrix", 120.0),
+        ("solve", 60.0),
+        ("get_plan", 15.0),
+        ("export_plan", 15.0),
+        ("save_scenario", 15.0),
+        ("load_scenario", 15.0),
+    ],
+)
+def test_each_operation_uses_its_own_timeout(operation_name: str, expected_seconds: float) -> None:
+    timeout = _timeout_seen_by(_OPERATIONS[operation_name])
+
+    assert timeout["read"] == expected_seconds
+    assert timeout["write"] == expected_seconds
+    assert timeout["pool"] == expected_seconds
+    # A stopped backend is still reported quickly, whatever the operation.
+    assert timeout["connect"] == min(expected_seconds, 5.0)
+
+
+def test_only_the_health_check_keeps_the_short_timeout() -> None:
+    """Regression for F8: every call used to time out after 3 seconds."""
+    short = {
+        name
+        for name, operation in _OPERATIONS.items()
+        if (_timeout_seen_by(operation)["read"] or 0.0) <= 3.0
+    }
+
+    assert short == {"health"}
+
+
+def test_custom_timeouts_are_applied() -> None:
+    timeouts = OperationTimeouts(solve=200.0, connect=2.0)
+
+    timeout = _timeout_seen_by(_OPERATIONS["solve"], timeouts)
+
+    assert timeout["read"] == 200.0
+    assert timeout["connect"] == 2.0
+
+
+@pytest.mark.parametrize("field", ["health", "validate", "geocode", "matrix", "solve", "connect"])
+def test_non_positive_timeouts_are_rejected(field: str) -> None:
+    with pytest.raises(ValueError, match=f"{field} timeout must be positive"):
+        OperationTimeouts(**{field: 0.0})
 
 
 def test_health_client_parses_valid_response() -> None:
