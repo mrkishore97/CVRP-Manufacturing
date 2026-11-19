@@ -51,6 +51,7 @@ def app(http_client: api_client.BackendClient, monkeypatch: pytest.MonkeyPatch) 
         api_client.BackendClient, "from_environment", classmethod(lambda cls: http_client)
     )
     test_app = AppTest.from_file(APP_PATH, default_timeout=60)
+    test_app.query_params["page"] = "json"  # the first page until M3; Scenario since
     test_app.run()
     assert not test_app.exception, test_app.exception
     return test_app

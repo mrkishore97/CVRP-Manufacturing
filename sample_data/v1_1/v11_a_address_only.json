@@ -1,0 +1,178 @@
+{
+  "scenario_id": "V11-A",
+  "name": "Address-only sample (Greater Toronto)",
+  "timezone": "America/Toronto",
+  "planning_horizon": {
+    "start": "2026-12-07T00:00:00",
+    "end": "2026-12-08T00:00:00"
+  },
+  "plant_location_id": "PLANT",
+  "locations": [
+    {
+      "location_id": "PLANT",
+      "name": "Main plant (stand-in: Mississauga Civic Centre)",
+      "address": "300 City Centre Dr, Mississauga, ON L5B 3C1"
+    },
+    {
+      "location_id": "BRAMPTON-SUPPLIER",
+      "name": "Brampton supplier (stand-in: Brampton City Hall)",
+      "address": "2 Wellington St W, Brampton, ON L6Y 4R2"
+    },
+    {
+      "location_id": "VAUGHAN-SUPPLIER",
+      "name": "Vaughan supplier (stand-in: Vaughan City Hall)",
+      "address": "2141 Major Mackenzie Dr, Vaughan, ON L6A 1T1"
+    },
+    {
+      "location_id": "HAMILTON-SUPPLIER",
+      "name": "Hamilton supplier (stand-in: Hamilton City Hall)",
+      "address": "71 Main St W, Hamilton, ON L8P 4Y5"
+    },
+    {
+      "location_id": "TORONTO-CUSTOMER",
+      "name": "Toronto customer (stand-in: Toronto City Hall)",
+      "address": "100 Queen St W, Toronto, ON M5H 2N2"
+    },
+    {
+      "location_id": "MARKHAM-CUSTOMER",
+      "name": "Markham customer (stand-in: Markham Civic Centre)",
+      "address": "101 Town Centre Blvd, Markham, ON L3R 9W3"
+    },
+    {
+      "location_id": "OAKVILLE-CUSTOMER",
+      "name": "Oakville customer (stand-in: Oakville Town Hall)",
+      "address": "1225 Trafalgar Rd, Oakville, ON L6H 0H3"
+    }
+  ],
+  "vehicles": [
+    {
+      "vehicle_id": "TRUCK-1",
+      "name": "Truck 1",
+      "capacity": 12,
+      "enabled": true
+    },
+    {
+      "vehicle_id": "TRUCK-2",
+      "name": "Truck 2",
+      "capacity": 12,
+      "enabled": true
+    },
+    {
+      "vehicle_id": "TRUCK-3",
+      "name": "Truck 3",
+      "capacity": 12,
+      "enabled": true
+    }
+  ],
+  "vehicle_shifts": [
+    {
+      "shift_id": "TRUCK-1-20261207",
+      "vehicle_id": "TRUCK-1",
+      "start": "2026-12-07T07:00:00",
+      "end": "2026-12-07T17:00:00"
+    },
+    {
+      "shift_id": "TRUCK-2-20261207",
+      "vehicle_id": "TRUCK-2",
+      "start": "2026-12-07T07:00:00",
+      "end": "2026-12-07T17:00:00"
+    },
+    {
+      "shift_id": "TRUCK-3-20261207",
+      "vehicle_id": "TRUCK-3",
+      "start": "2026-12-07T07:00:00",
+      "end": "2026-12-07T17:00:00"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "TASK-0001",
+      "po_number": "PO-24001",
+      "task_type": "PICKUP",
+      "origin_location_id": "BRAMPTON-SUPPLIER",
+      "destination_location_id": "PLANT",
+      "quantity": 6,
+      "ready_at": "2026-12-07T07:00:00",
+      "due_at": "2026-12-07T12:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 20,
+      "delivery_service_minutes": 15,
+      "priority": 2
+    },
+    {
+      "task_id": "TASK-0002",
+      "po_number": "PO-24002",
+      "task_type": "PICKUP",
+      "origin_location_id": "VAUGHAN-SUPPLIER",
+      "destination_location_id": "PLANT",
+      "quantity": 5,
+      "ready_at": "2026-12-07T08:00:00",
+      "due_at": "2026-12-07T14:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 1
+    },
+    {
+      "task_id": "TASK-0003",
+      "po_number": "PO-24003",
+      "task_type": "PICKUP",
+      "origin_location_id": "HAMILTON-SUPPLIER",
+      "destination_location_id": "PLANT",
+      "quantity": 7,
+      "ready_at": "2026-12-07T07:30:00",
+      "due_at": "2026-12-07T15:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 20,
+      "delivery_service_minutes": 20,
+      "priority": 3
+    },
+    {
+      "task_id": "TASK-0004",
+      "po_number": "PO-24004",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "TORONTO-CUSTOMER",
+      "quantity": 4,
+      "ready_at": "2026-12-07T07:00:00",
+      "due_at": "2026-12-07T11:30:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 20,
+      "priority": 3
+    },
+    {
+      "task_id": "TASK-0005",
+      "po_number": "PO-24005",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "MARKHAM-CUSTOMER",
+      "quantity": 6,
+      "ready_at": "2026-12-07T09:00:00",
+      "due_at": "2026-12-07T15:30:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 2
+    },
+    {
+      "task_id": "TASK-0006",
+      "po_number": "PO-24006",
+      "task_type": "PICKUP_DROP",
+      "origin_location_id": "VAUGHAN-SUPPLIER",
+      "destination_location_id": "OAKVILLE-CUSTOMER",
+      "quantity": 3,
+      "ready_at": "2026-12-07T10:00:00",
+      "due_at": "2026-12-07T16:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 1
+    }
+  ],
+  "planner_defaults": {
+    "pickup_service_minutes": 15,
+    "delivery_service_minutes": 15,
+    "capacity_unit": "pallets"
+  }
+}

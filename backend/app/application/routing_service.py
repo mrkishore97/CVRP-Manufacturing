@@ -1,4 +1,9 @@
-"""Routing application service with deterministic matrix cache orchestration."""
+"""Routing application service with deterministic matrix cache orchestration.
+
+Decision D6: matrices from a provider whose terms do not allow storage (Google Routes)
+are never read from or written to the matrix cache. Each calculation calls the
+provider; the caller keeps the result only for as long as it needs it.
+"""
 
 from __future__ import annotations
 
@@ -32,6 +37,7 @@ class MatrixComputationResult:
     matrix: RoutingMatrix
     cache_hit: bool
     cache_key: str
+    cache_enabled: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +47,7 @@ class MatrixEstimateResult:
     estimate: MatrixRequestEstimate
     cache_hit: bool
     cache_key: str
+    cache_enabled: bool = True
 
 
 class RoutingService:
@@ -67,6 +74,11 @@ class RoutingService:
         self._limits = limits or RoutingLimits()
         self._now = now or (lambda: datetime.now(UTC))
 
+    @property
+    def cache_enabled(self) -> bool:
+        """Whether this provider's matrices may be cached (decision D6)."""
+        return self._provider.matrix_storage_allowed
+
     async def geocode(self, addresses: Sequence[str]) -> tuple[RoutingLocation, ...]:
         """Resolve addresses through the selected provider."""
         return await self._provider.geocode(addresses)
@@ -90,11 +102,16 @@ class RoutingService:
     ) -> MatrixEstimateResult:
         """Count billable elements and requests, and check the cache; no provider call."""
         cache_key = self._matrix_cache_key(locations, options)
-        cached = self._cache.get(cache_key, now=self._now().astimezone(UTC))
+        cached = (
+            self._cache.get(cache_key, now=self._now().astimezone(UTC))
+            if self.cache_enabled
+            else None
+        )
         return MatrixEstimateResult(
             estimate=estimate_matrix_request(len(locations), self._limits, options),
             cache_hit=cached is not None,
             cache_key=cache_key,
+            cache_enabled=self.cache_enabled,
         )
 
     async def compute_matrix(
@@ -104,10 +121,15 @@ class RoutingService:
         *,
         force_refresh: bool = False,
     ) -> MatrixComputationResult:
-        """Return a cached matrix or calculate and persist a complete replacement."""
+        """Return a cached matrix or calculate a complete replacement.
+
+        A calculated matrix is persisted only when the provider allows storage; a
+        Google matrix is returned to the caller and not kept (decision D6).
+        """
         cache_key = self._matrix_cache_key(locations, options)
         now = self._now().astimezone(UTC)
-        if not force_refresh:
+        cache_enabled = self.cache_enabled
+        if cache_enabled and not force_refresh:
             cached = self._cache.get(cache_key, now=now)
             if cached is not None:
                 return MatrixComputationResult(
@@ -117,6 +139,13 @@ class RoutingService:
                 )
 
         calculated = await self._provider.compute_matrix(locations, options)
+        if not cache_enabled:
+            return MatrixComputationResult(
+                matrix=calculated.model_copy(update={"created_at": now, "expires_at": None}),
+                cache_hit=False,
+                cache_key=cache_key,
+                cache_enabled=False,
+            )
         matrix = calculated.model_copy(
             update={
                 "created_at": now,

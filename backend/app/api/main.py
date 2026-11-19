@@ -11,11 +11,13 @@ from backend.app.api.dependencies import database_for_app
 from backend.app.api.error_handlers import register_error_handlers
 from backend.app.api.middleware import request_context_middleware
 from backend.app.api.routes.health import router as health_router
+from backend.app.api.routes.imports import router as imports_router
 from backend.app.api.routes.locations import router as locations_router
 from backend.app.api.routes.plans import router as plans_router
 from backend.app.api.routes.routing import router as routing_router
 from backend.app.api.routes.scenarios import router as scenarios_router
 from backend.app.api.routes.system import router as system_router
+from backend.app.application.retention import RetentionSweep, sweep_unstorable_matrices
 from backend.app.config import Settings, get_settings
 from backend.app.logging_config import configure_logging
 from backend.app.persistence import SQLiteGeocodeCache
@@ -35,6 +37,11 @@ def purge_expired_geocodes(application: FastAPI, settings: Settings) -> int:
     return removed
 
 
+def purge_unstorable_matrices(application: FastAPI, settings: Settings) -> RetentionSweep:
+    """Remove Google matrices that Version 1.0 cached or saved (decision D6)."""
+    return sweep_unstorable_matrices(database_for_app(application, settings))
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create a backend application with explicit process-level dependencies."""
     active_settings = settings or get_settings()
@@ -43,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         purge_expired_geocodes(application, active_settings)
+        purge_unstorable_matrices(application, active_settings)
         yield
 
     application = FastAPI(
@@ -60,6 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(routing_router, prefix="/api/v1")
     application.include_router(plans_router, prefix="/api/v1")
     application.include_router(scenarios_router, prefix="/api/v1")
+    application.include_router(imports_router, prefix="/api/v1")
     register_error_handlers(application)
     return application
 

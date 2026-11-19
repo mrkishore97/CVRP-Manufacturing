@@ -46,6 +46,14 @@ class Derived:
     matrix_origin: str | None = None  # "json" or "calculated"
     matrix_cache_hit: bool | None = None
     embedded_matrix: JsonObject | None = None
+    matrix_estimate: JsonObject | None = None
+    matrix_estimate_fingerprint: str | None = None
+    resolutions: Mapping[str, JsonObject] = field(default_factory=dict)
+    """Latest resolve result per location ID, for review details (alternatives, reasons).
+
+    Kept for this session only; the location itself holds what must survive a save.
+    Each entry records the address it was for, so an edited address shows nothing stale.
+    """
     plan: JsonObject | None = None
     plan_input_fingerprint: str | None = None
     plan_request_id: str | None = None
@@ -95,10 +103,12 @@ def edit(
     )
     renames = dict(renamed_locations or {})
     embedded = derived.embedded_matrix
+    resolutions = dict(derived.resolutions)
     if renames:
         matrix = _rename_matrix(matrix, renames)
         embedded = _rename_matrix(embedded, renames)
         old_scenario = _rename_locations(old_scenario, renames)
+        resolutions = {renames.get(key, key): value for key, value in resolutions.items()}
     if matrix is not None and was_current:
         new_ids = row_ids(new_scenario, "locations")
         matrix_ids = [str(value) for value in matrix.get("location_ids", [])]
@@ -116,6 +126,7 @@ def edit(
             matrix=matrix,
             matrix_input_fingerprint=matrix_fingerprint,
             embedded_matrix=embedded,
+            resolutions=resolutions,
         ),
     )
 
@@ -189,15 +200,70 @@ def solve_payload(workspace: Workspace) -> JsonObject:
     return payload
 
 
-def save_document(workspace: Workspace) -> JsonObject:
-    """What "Save scenario" stores: the complete scenario plus the active matrix.
+GOOGLE_MATRIX_SOURCES = frozenset({"google_routes"})
+"""Matrix ``source`` values that must not be stored or downloaded (decision D6)."""
 
-    This keeps Version 1.0 behaviour (saved scenarios carry their matrix) until open
-    decision D6 settles whether Google travel times may be stored.
+
+def matrix_is_storable(matrix: Mapping[str, Any] | None) -> bool:
+    """Whether a matrix may leave the session; Google travel times may not (D6)."""
+    return matrix is not None and str(matrix.get("source", "")) not in GOOGLE_MATRIX_SOURCES
+
+
+def storable_matrix(workspace: Workspace) -> JsonObject | None:
+    """The active matrix if it may be saved or downloaded, else ``None``."""
+    matrix = workspace.derived.matrix
+    return matrix if matrix is not None and matrix_is_storable(matrix) else None
+
+
+def save_document(workspace: Workspace) -> JsonObject:
+    """What "Save scenario" stores: the complete scenario, plus the active matrix if allowed.
+
+    Decision D6: Google travel times are kept only for the session, so a scenario whose
+    travel times came from Google is saved without them and recalculated after opening.
+    Matrices from JSON (such as the samples) are saved as in Version 1.0.
     """
     return document_for_export(
-        workspace.scenario, mode=ExportMode.COMPLETE, matrix=workspace.derived.matrix
+        workspace.scenario, mode=ExportMode.COMPLETE, matrix=storable_matrix(workspace)
     )
+
+
+def record_resolutions(
+    workspace: Workspace,
+    scenario: Mapping[str, Any],
+    results: Sequence[Mapping[str, Any]],
+    *,
+    sent_addresses: Mapping[str, str],
+) -> Workspace:
+    """Apply an edited scenario after a resolve, remembering each result's details."""
+    updated = edit(workspace, scenario)
+    details = dict(updated.derived.resolutions)
+    for result in results:
+        location_id = str(result.get("location_id", ""))
+        if location_id in sent_addresses:
+            details[location_id] = {**dict(result), "address": sent_addresses[location_id]}
+    return replace(updated, derived=replace(updated.derived, resolutions=details))
+
+
+def record_estimate(workspace: Workspace, estimate: Mapping[str, Any]) -> Workspace:
+    """Remember a matrix estimate for the current locations and routing options."""
+    return replace(
+        workspace,
+        derived=replace(
+            workspace.derived,
+            matrix_estimate=deepcopy(dict(estimate)),
+            matrix_estimate_fingerprint=matrix_input_fingerprint(workspace.scenario),
+        ),
+    )
+
+
+def current_estimate(workspace: Workspace) -> JsonObject | None:
+    """The remembered estimate if it was made for the current locations and options."""
+    derived = workspace.derived
+    if derived.matrix_estimate is None:
+        return None
+    if derived.matrix_estimate_fingerprint != matrix_input_fingerprint(workspace.scenario):
+        return None
+    return derived.matrix_estimate
 
 
 def record_validation(

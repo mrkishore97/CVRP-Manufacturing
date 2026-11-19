@@ -1,27 +1,29 @@
 """V1.1-M2 Streamlit shell tests through ``AppTest`` with a fake backend client.
 
 Migrated from ``test_streamlit_smoke.py``: the unavailable-backend, startup, workflow,
-and sample-loader tests each keep an equivalent here.
+and sample-loader tests each keep an equivalent here. These tests work in the Advanced
+JSON page, which was the first page until M3; ``_start`` opens it through the URL.
 """
 
 from __future__ import annotations
 
 import json
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from frontend import api_client
 from frontend.samples import load_sample_payload
 from frontend.state.json_io import ExportMode, scenario_to_json
 from frontend.state.workspace import Workspace
+from frontend.tests.fake_backend import FakeBackend, install
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 APP_PATH = str(PROJECT_ROOT / "frontend" / "streamlit_app.py")
 PAGE_HEADERS = {
+    "scenario": "Scenario",
+    "locations": "Locations",
     "json": "Advanced JSON",
     "fleet": "Fleet",
     "tasks": "Tasks",
@@ -32,108 +34,14 @@ PAGE_HEADERS = {
 }
 
 
-class FakeBackend:
-    """In-memory stand-in for ``BackendClient``; records every call."""
-
-    def __init__(self) -> None:
-        self.valid = True
-        self.validate_calls: list[dict[str, Any]] = []
-        self.solve_calls: list[dict[str, Any]] = []
-        self.matrix_calls: list[list[dict[str, Any]]] = []
-        self.saved: dict[str, dict[str, Any]] = {}
-
-    def get_health(self) -> api_client.HealthStatus:
-        return api_client.HealthStatus(
-            status="ok", service="backend", version="test", environment="test"
-        )
-
-    def get_config(self) -> api_client.BackendConfig:
-        return api_client.BackendConfig(
-            default_timezone="America/Toronto",
-            google_maps_configured=False,
-            geocode_region_code="ca",
-            geocode_cache_ttl_seconds=2_592_000,
-            geocode_max_plant_distance_km=500.0,
-            matrix_confirm_elements=400,
-            solver_time_limit_seconds=10,
-            limits={},
-        )
-
-    def _validation(self, payload: dict[str, Any]) -> dict[str, Any]:
-        problems = []
-        if not payload.get("vehicles"):
-            problems.append({"severity": "ERROR", "code": "INVALID_VALUE", "message": "No trucks."})
-        if payload.get("scenario_id") == "INVALID-SCENARIO" or not self.valid:
-            problems.append(
-                {"severity": "ERROR", "code": "CAPACITY_EXCEEDED", "message": "Too heavy."}
-            )
-        return {
-            "valid": not problems,
-            "issues": problems,
-            "normalized_request": None if problems else {"tasks": payload.get("tasks", [])},
-        }
-
-    def validate_plan(self, payload: dict[str, Any]) -> api_client.WorkflowResponse:
-        self.validate_calls.append(deepcopy(payload))
-        raw = {"validation": self._validation(payload)}
-        return api_client.WorkflowResponse(raw=raw, request_id="req-validate")
-
-    def solve_plan(self, payload: dict[str, Any]) -> api_client.WorkflowResponse:
-        self.solve_calls.append(deepcopy(payload))
-        raw = {
-            "validation": self._validation(payload),
-            "plan": {
-                "plan_id": "plan-1",
-                "status": "FEASIBLE",
-                "scheduled_task_ids": [task["task_id"] for task in payload.get("tasks", [])],
-                "unscheduled_task_ids": [],
-                "diagnostics": [],
-                "routes": [],
-            },
-        }
-        return api_client.WorkflowResponse(raw=raw, request_id="req-solve")
-
-    def compute_matrix(
-        self,
-        locations: list[dict[str, Any]],
-        *,
-        force_refresh: bool = False,
-        options: dict[str, Any] | None = None,
-    ) -> api_client.ApiResult:
-        del force_refresh, options
-        self.matrix_calls.append(locations)
-        size = len(locations)
-        matrix = {
-            "location_ids": [location["location_id"] for location in locations],
-            "distance_meters": [[0 if r == c else 1_000 for c in range(size)] for r in range(size)],
-            "duration_seconds": [[0 if r == c else 60 for c in range(size)] for r in range(size)],
-            "source": "fake",
-        }
-        return api_client.ApiResult(payload={"matrix": matrix, "cache_hit": False})
-
-    def save_scenario(self, payload: dict[str, Any]) -> api_client.ApiResult:
-        self.saved[str(payload["scenario_id"])] = deepcopy(payload)
-        return api_client.ApiResult(payload={"scenario_id": payload["scenario_id"]})
-
-    def load_scenario(self, scenario_id: str) -> api_client.ApiResult:
-        if scenario_id not in self.saved:
-            raise api_client.BackendApiError(
-                status_code=404, code="SCENARIO_NOT_FOUND", message="Not found.", request_id="r"
-            )
-        return api_client.ApiResult(
-            payload={"scenario_id": scenario_id, "payload": deepcopy(self.saved[scenario_id])}
-        )
-
-
 @pytest.fixture
 def backend(monkeypatch: pytest.MonkeyPatch) -> FakeBackend:
-    fake = FakeBackend()
-    monkeypatch.setattr(api_client.BackendClient, "from_environment", classmethod(lambda cls: fake))
-    return fake
+    return install(monkeypatch)
 
 
 def _start() -> AppTest:
     app = AppTest.from_file(APP_PATH, default_timeout=30)
+    app.query_params["page"] = "json"
     app.run()
     assert not app.exception, app.exception
     return app
@@ -184,6 +92,7 @@ def test_unavailable_backend_is_reported_and_editing_still_works(
     """Migrated: test_streamlit_app_handles_unavailable_backend."""
     monkeypatch.setenv("BACKEND_API_URL", "http://127.0.0.1:9")
     app = AppTest.from_file(APP_PATH, default_timeout=30)
+    app.query_params["page"] = "json"
     app.run()
 
     assert not app.exception
@@ -193,16 +102,22 @@ def test_unavailable_backend_is_reported_and_editing_still_works(
     assert _editor_text(app)
 
 
-def test_shell_starts_on_advanced_json_with_every_page_in_the_sidebar(
+def test_shell_starts_on_the_scenario_page_with_every_page_in_the_sidebar(
     backend: FakeBackend,
 ) -> None:
-    """Migrated: test_streamlit_app_starts_with_m8_workflow."""
-    app = _start()
+    """Migrated: test_streamlit_app_starts_with_m8_workflow (first page is Scenario since M3)."""
+    app = AppTest.from_file(APP_PATH, default_timeout=30)
+    app.run()
+    assert not app.exception, app.exception
 
     assert any("Manufacturing PO Route Optimizer" in title.value for title in app.title)
-    assert [header.value for header in app.header] == ["Advanced JSON"]
+    assert [header.value for header in app.header] == ["Scenario"]
     for page in PAGE_HEADERS:
         assert app.button(key=f"nav-{page}") is not None
+    assert [caption.value for caption in app.sidebar.caption][:3] == ["Build", "Plan", "Advanced"]
+    for label in ("Save scenario", "Open sample", "Start a new empty scenario"):
+        assert _button(app, label) is not None
+    _go(app, "json")
     for label in ("Apply JSON", "Save scenario", "Load saved scenario", "Load feasible sample"):
         assert _button(app, label) is not None
     assert "Google Maps not configured" in _sidebar_text(app)
@@ -257,6 +172,8 @@ def test_sample_uses_its_travel_times_and_solves(backend: FakeBackend) -> None:
     assert any(m.label == "Plan status" and m.value == "FEASIBLE" for m in app.metric)
     assert "routing_matrix" in backend.solve_calls[0]
     assert backend.matrix_calls == []
+    # Coordinates supplied in JSON keep the OpenStreetMap preview (decision D1).
+    assert not any("not drawn on the OpenStreetMap" in info.value for info in app.info)
 
 
 def test_invalid_scenario_blocks_travel_times_and_solving(backend: FakeBackend) -> None:
@@ -265,7 +182,11 @@ def test_invalid_scenario_blocks_travel_times_and_solving(backend: FakeBackend) 
     assert "❌ 1 error(s)" in _sidebar_text(app)
 
     _go(app, "travel_times")
-    assert _button(app, "Calculate travel times").disabled
+    assert not any(
+        button.label in ("Calculate travel times", "Recalculate travel times")
+        and not button.disabled
+        for button in app.button
+    )
     _go(app, "optimize")
     assert _button(app, "Solve route plan").disabled
     _click(app, "Solve route plan")  # AppTest can click disabled buttons; nothing may happen
@@ -403,7 +324,8 @@ def test_address_only_json_cannot_calculate_travel_times(backend: FakeBackend) -
 
     assert "📍 0 of 7 locations ready · 7 need attention" in _sidebar_text(app)
     assert _button(app, "Calculate travel times").disabled
-    statuses = app.dataframe[0].value["status"].tolist()
+    _go(app, "locations")
+    statuses = app.dataframe[0].value["Status"].tolist()
     assert statuses == ["Not resolved yet"] * 7
     assert backend.matrix_calls == []
 

@@ -54,6 +54,11 @@ class FakeRoutingProvider:
     def provider_name(self) -> str:
         return "fake"
 
+    @property
+    def matrix_storage_allowed(self) -> bool:
+        """Offline matrices carry no provider terms, so they may be cached."""
+        return True
+
     async def geocode(self, addresses: Sequence[str]) -> tuple[RoutingLocation, ...]:
         """Return configured locations in request order or a controlled error."""
         self.geocode_call_count += 1

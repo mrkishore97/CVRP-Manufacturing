@@ -14,25 +14,28 @@ from typing import Any
 import streamlit as st
 
 from frontend.api_client import BackendClientError
-from frontend.samples import SAMPLE_LABELS, load_sample_payload
+from frontend.samples import SAMPLE_LABELS
 from frontend.state.fingerprints import saved_fingerprint, stable_fingerprint
 from frontend.state.json_io import ExportMode, parse_document, scenario_to_json
-from frontend.state.scenario_state import new_scenario, rows
+from frontend.state.scenario_state import rows
 from frontend.state.workspace import (
     Workspace,
     apply_document,
     load_document,
-    mark_saved,
+    matrix_is_storable,
     record_validation,
-    save_document,
+    storable_matrix,
     validation_issue_rows,
     validation_payload,
     validation_payload_fingerprint,
 )
 from frontend.views.components import (
+    EDITOR_FILLED_KEY,
+    EDITOR_KEY,
+    EDITOR_SOURCE_KEY,
     AppContext,
+    editor_follows_scenario,
     get_workspace,
-    kept_widget_value,
     next_step_button,
     remember_widget,
     render_backend_error,
@@ -41,10 +44,15 @@ from frontend.views.components import (
     set_workspace,
     table,
 )
+from frontend.views.opening import (
+    discard_allowed,
+    open_empty,
+    open_sample,
+    open_saved,
+    replace_workspace,
+)
+from frontend.views.saving import save_current
 
-EDITOR_KEY = "json_editor_text"
-EDITOR_SOURCE_KEY = "json_editor_source"
-EDITOR_FILLED_KEY = "json_editor_filled_text"
 MODE_KEY = "json_view_mode"
 CONFIRM_DISCARD_KEY = "confirm_discard_edits"
 MODE_LABELS = {
@@ -97,55 +105,24 @@ def _render_summary(workspace: Workspace) -> None:
 
 def _render_replace_actions(ctx: AppContext, workspace: Workspace) -> None:
     st.subheader("Open a scenario")
-    allowed = True
-    if ctx.status.unsaved_edits:
-        st.warning("This scenario has edits that are not saved.")
-        allowed = st.checkbox(
-            "Discard unsaved edits when opening another scenario", key=CONFIRM_DISCARD_KEY
-        )
-    columns = st.columns(4)
+    allowed = discard_allowed(ctx, CONFIRM_DISCARD_KEY)
+    columns = st.columns(len(SAMPLE_LABELS) + 1)
     for column, (letter, label) in zip(columns, SAMPLE_LABELS.items(), strict=False):
         if column.button(f"Load {label}", disabled=not allowed) and allowed:
-            _replace(load_document(load_sample_payload(letter), source=f"sample {letter}"))
-            set_flash("success", f"Loaded the {label}.")
-            st.rerun()
-    if columns[3].button("Start empty scenario", disabled=not allowed) and allowed:
-        _replace(load_document(new_scenario(), source="new empty scenario"))
-        set_flash("success", "Started an empty scenario.")
-        st.rerun()
+            open_sample(letter)
+    if columns[-1].button("Start empty scenario", disabled=not allowed) and allowed:
+        open_empty(ctx)
 
     col_load, col_upload = st.columns(2)
     scenario_id = col_load.text_input("Scenario ID to load", key="load_scenario_id")
     can_load = allowed and bool(scenario_id.strip())
     if col_load.button("Load saved scenario", disabled=not can_load) and can_load:
-        _load_saved(ctx, scenario_id.strip())
+        open_saved(ctx, scenario_id.strip())
     uploaded = col_upload.file_uploader("Upload scenario JSON", type=("json",))
     can_open = allowed and uploaded is not None
     if col_upload.button("Open uploaded file", disabled=not can_open) and can_open:
         text = uploaded.getvalue().decode("utf-8-sig") if uploaded is not None else ""
         _apply_text(ctx, workspace, text, mode=ExportMode.COMPLETE, replace_from="uploaded file")
-
-
-def _load_saved(ctx: AppContext, scenario_id: str) -> None:
-    try:
-        response = ctx.client.load_scenario(scenario_id)
-    except BackendClientError as exc:
-        render_backend_error(exc)
-        return
-    document = response.payload.get("payload")
-    if not isinstance(document, dict):
-        st.error("Saved scenario response did not contain a scenario.")
-        return
-    loaded_id = str(response.payload.get("scenario_id", scenario_id))
-    _replace(load_document(document, source=f"saved scenario {loaded_id}"))
-    set_flash("success", f"Loaded scenario {loaded_id}.")
-    st.rerun()
-
-
-def _replace(workspace: Workspace) -> None:
-    set_workspace(workspace)
-    st.session_state.pop(CONFIRM_DISCARD_KEY, None)
-    _editor_follows_scenario()
 
 
 def _render_editor(ctx: AppContext, workspace: Workspace) -> None:
@@ -164,7 +141,7 @@ def _render_editor(ctx: AppContext, workspace: Workspace) -> None:
     expected = scenario_to_json(
         workspace.scenario,
         mode=mode,
-        matrix=workspace.derived.matrix if mode is ExportMode.COMPLETE else None,
+        matrix=storable_matrix(workspace) if mode is ExportMode.COMPLETE else None,
     )
     source = stable_fingerprint([saved_fingerprint(workspace.scenario), mode.value, expected])
     restore_widget(EDITOR_KEY)
@@ -188,7 +165,7 @@ def _render_editor(ctx: AppContext, workspace: Workspace) -> None:
     if col_apply.button("Apply JSON", type="primary"):
         _apply_text(ctx, workspace, str(st.session_state.get(EDITOR_KEY, "")), mode=mode)
     if col_reset.button("Reset editor"):
-        _editor_follows_scenario()
+        editor_follows_scenario()
         st.rerun()
 
 
@@ -197,14 +174,6 @@ def _fill_editor(text: str, source: str) -> None:
     st.session_state[EDITOR_KEY] = text
     st.session_state[EDITOR_FILLED_KEY] = text
     st.session_state[EDITOR_SOURCE_KEY] = source
-
-
-def _editor_follows_scenario() -> None:
-    """Treat the editor as unedited, so the next run refills it from the scenario."""
-    st.session_state[EDITOR_FILLED_KEY] = st.session_state.get(
-        EDITOR_KEY, kept_widget_value(EDITOR_KEY)
-    )
-    st.session_state[EDITOR_SOURCE_KEY] = None
 
 
 def _apply_text(
@@ -249,11 +218,11 @@ def _apply_text(
             request_id=None,
         )
     if replace_from is not None:
-        _replace(candidate)
+        replace_workspace(candidate)
         set_flash("success", f"Opened the {replace_from}.")
     else:
         set_workspace(candidate)
-        _editor_follows_scenario()
+        editor_follows_scenario()
         set_flash("success", "JSON applied.")
     st.rerun()
 
@@ -285,20 +254,17 @@ def _render_downloads_and_save(ctx: AppContext, workspace: Workspace) -> None:
     col_complete.download_button(
         "Download complete JSON",
         data=scenario_to_json(
-            workspace.scenario, mode=ExportMode.COMPLETE, matrix=workspace.derived.matrix
+            workspace.scenario, mode=ExportMode.COMPLETE, matrix=storable_matrix(workspace)
         ),
         file_name=f"{safe_id}_complete.json",
         mime="application/json",
-        help="Also includes resolved coordinates and the active travel times.",
+        help="Also includes resolved coordinates and travel times that may be stored.",
     )
     if col_save.button("Save scenario"):
-        try:
-            response = ctx.client.save_scenario(save_document(workspace))
-        except BackendClientError as exc:
-            render_backend_error(exc)
-        else:
-            saved_id = response.payload.get("scenario_id", scenario_id)
-            set_workspace(mark_saved(workspace, source=f"saved scenario {saved_id}"))
-            set_flash("success", f"Saved scenario {saved_id}.")
-            st.rerun()
+        save_current(ctx)
+    if workspace.derived.matrix is not None and not matrix_is_storable(workspace.derived.matrix):
+        st.caption(
+            "Travel times from Google are kept only for this session: they are not in the "
+            "JSON downloads or saved scenarios, and are recalculated after opening."
+        )
     st.caption("API keys stay in backend configuration; this app never asks for them.")

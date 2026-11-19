@@ -3,7 +3,7 @@
 **Purpose:** Chronological implementation and verification record  
 **Project plan:** `project_plan.md` (Version 1.0); `project_plan_v1.1.md` (Version 1.1, from Build 014)  
 **Started:** 2026-06-21  
-**Current milestone:** Version 1.1 — V1.1-M2 complete on branch `v1.1`; next V1.1-M3 (needs D6)
+**Current milestone:** Version 1.1 — V1.1-M3 complete on branch `v1.1` (live-key manual check outstanding); next V1.1-M4
 
 ## Logging rules
 
@@ -1306,3 +1306,156 @@ Also tested:
 
 - Settle D6.
 - Start V1.1-M3 (scenario, plant, locations, travel times).
+
+## 2026-11-18 — Build 017 — V1.1-M3 — Scenario, plant, locations, travel times
+
+Plan: `project_plan_v1.1.md` §14, V1.1-M3 (design in §8, §9.1, §9.2, §12, §13).
+
+### Scope
+
+- Scenario page.
+- Locations page: name and address only; resolve, review, confirm, retry.
+- Location import, and copying locations from a saved scenario.
+- Travel times page: estimate, confirmation, routing options, cache indicator, matrix slicing.
+- Address-only sample.
+
+### Decision settled before the code: D6 (plan §4)
+
+The go-ahead for M3 was given right after option (a) was recommended, so D6 is recorded as **(a), settled 2026-11-18**. The plan's decision table was updated before any code.
+
+Google Routes distances and durations are not stored:
+
+- **Matrix cache.** `RoutingService` neither reads nor writes the cache for a provider whose `matrix_storage_allowed` is false (Google); every calculation calls the provider. `/matrices/estimate` and `/matrices/compute` report `cache_enabled`. Fake-provider matrices are still cached.
+- **Saved scenarios.** `POST` and `PUT /scenarios` drop an embedded `routing_matrix` whose `source` is `google_routes` and return `routing_matrix_dropped`. The app leaves a Google matrix out of saves and JSON downloads, and keeps it for the session.
+- **Start-up sweep.** At backend start, Google rows in the matrix cache are deleted, and Google matrices are removed from saved scenarios. `updated_at` is unchanged, because a retention sweep is not a planner's save.
+  - The real `data/route_optimizer.db` was inspected read-only. It holds no saved scenarios and no cached matrices, so the sweep removes nothing there.
+- **Changed Version 1.0 test.** `test_google_cache.py` asserted a cache hit on the second identical Google request. It now asserts D6: two HTTP calls and an empty cache table. This is the one intended behaviour change.
+
+### Changes
+
+- **Backend**
+  - `routing/{base,google,fake}.py`: `matrix_storage_allowed` (Google false, fake true).
+  - `application/routing_service.py`: D6 cache rule; `cache_enabled` on its results.
+  - `application/retention.py` (new): `matrix_is_storable`, `without_unstorable_matrix`, `sweep_unstorable_matrices`.
+  - `persistence/matrix_cache.py`: `purge_source`.
+  - `persistence/scenario_repository.py`: `list_summaries`, `rewrite_payloads`, `ScenarioSummary`.
+  - `api/routes/scenarios.py`: `GET /scenarios` (newest first, with name and row counts); D6 drop on POST and PUT.
+  - `domain/location_import.py` and `api/routes/imports.py` (new): `POST /imports/locations/preview`.
+    - Headers map to name, address, and optional ID through aliases (supplier, customer, company, full address, site ID, and others).
+    - Row-level issues use spreadsheet row numbers; blank rows are skipped.
+    - The request is limited by `API_MAX_LOCATIONS`.
+  - `api/main.py`: sweep in the lifespan; imports router.
+- **Frontend state**
+  - `state/locations.py` (new):
+    - Pending addresses (the plant first; blank addresses skipped) and resolve rows; a confirmed place ID is sent back.
+    - Plant coordinates for the far-from-plant check.
+    - Applying results only while the location still has the address that was sent.
+    - Confirm match; add, edit, and duplicate; import merge (by ID, else by a unique name); copy with provenance.
+    - Used-by text, unused locations, and table rows.
+  - `state/settings.py` (new): identity, timezone list, period (local wall-clock text), "fit to shifts and tasks" in whole local days, plant, choose plant, planner defaults.
+  - `state/workspace.py`:
+    - Resolve details kept per location for the session (alternatives, distance), following ID renames.
+    - Estimate remembered per matrix-input fingerprint.
+    - D6: `matrix_is_storable` and `storable_matrix`; `save_document` leaves Google matrices out.
+- **Frontend views**
+  - `scenario.py` (new): details form, fit button, plant form, choose plant, defaults form, Save, Open (picker over the saved list), Open sample, New.
+  - `locations.py` (new):
+    - Table with the plant pinned first.
+    - Resolve (N pending); Retry not found.
+    - Review cards: typed against matched address, reason, distance, Confirm, Correct, "Use this address" for alternatives.
+    - Add form; edit, rename, duplicate, delete.
+    - Import and Copy expanders.
+  - `travel_times.py` (rewritten):
+    - Readiness, unused-location note, estimate metrics, large-matrix tick, Calculate.
+    - Advanced section: routing options form, plus Recalculate with its own tick.
+    - Use travel times from JSON.
+  - `opening.py` and `saving.py` (new): shared between Scenario and Advanced JSON.
+  - `navigation.py`: Build / Plan / Advanced sections; the app opens on Scenario.
+  - `optimize.py`: "Every location is resolved" pre-flight check.
+  - `results.py`: address-resolved locations are not drawn on the OpenStreetMap preview (D1).
+- **API client:** `list_scenarios`, `preview_location_import`.
+- **Samples:** `sample_data/v1_1/v11_a_address_only.json` (V11-A) with a README.
+  - Seven Greater Toronto civic-building addresses standing in for a plant, three suppliers, and three customers.
+  - Three trucks and six mixed tasks; no coordinates and no travel times.
+  - Offered in the app as "Address-only sample".
+- **Tests**
+  - New: `test_m3_pages.py` (25), `test_state_locations.py` (22), `test_state_settings.py` (9), `test_location_import.py` (7), `test_v1_1_m3_api.py` (9), `test_v1_1_m3_address_only.py` (2).
+  - `fake_backend.py`: the `AppTest` fake client, moved out of `test_streamlit_app.py` and extended.
+  - The M2 app and parity tests now open Advanced JSON through `?page=json`, because the first page is now Scenario. Their assertions are unchanged, except where a page's content moved: the locations table is on Locations, and a current matrix means there is nothing to calculate.
+- **Docs**
+  - Plan: status line; §6.1, §6.3, §7.3, §8.7, §9.1, §9.2, §13.2, §13.4, §14, §16 (criterion 12 under D6), §17, §21.
+  - README "Current status"; `docs/google_api_setup.md` D6 row.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| `python -m ruff format --check .` | PASS | 143 files already formatted. |
+| `python -m ruff check .` | PASS | All checks passed. |
+| `python -m mypy backend frontend` | PASS | No issues in 137 source files. |
+| `python -m pytest -q` | PASS | **489 passed**: 413 before, plus 74 in new files and 2 more page cases in `test_streamlit_app.py`. Same 3 OR-Tools/SWIG warnings. |
+| Characterization and M2 parity tests | PASS | Unchanged results for A–F. |
+| `python scripts/validate_m0.py` | PASS | 672 checks. |
+| `python scripts/validate_m9_release.py` | PASS | |
+| `python scripts/review_m2_payloads.py` | PASS | |
+| `python scripts/smoke_m1.py` | PASS | Run with `DATABASE_PATH` set to a scratch file, so the start-up sweep could not touch the real database. |
+| `python -m pip check` | PASS | |
+| Real database untouched by checks | PASS | The modification time of `data/route_optimizer.db` was unchanged across full backend and frontend test runs. |
+
+Plan M3 checks and their tests:
+
+| Plan check | Tests |
+|---|---|
+| No form on any page exposes a latitude or longitude input (widget tree) | `test_no_widget_on_any_page_asks_for_latitude_or_longitude`: every widget on all nine pages (labels, keys, help) |
+| Add → resolve → confirm → calculate through `AppTest` with a fake client | `test_add_resolve_confirm_calculate_and_solve`, `test_a_new_scenario_is_built_from_the_scenario_and_locations_forms`; against the real backend: `test_typed_addresses_become_a_current_matrix_and_a_feasible_plan` |
+| An address edit resets only that location and stales travel times; a rename changes nothing downstream | `test_editing_one_address_resets_only_that_location_and_stales_travel_times`, `test_renaming_a_location_changes_nothing_downstream` (plan stays current), `test_renaming_a_location_id_keeps_travel_times_current`, plus state tests |
+| Rerunning or navigating makes zero provider calls | `test_rerunning_and_visiting_pages_makes_no_provider_calls` (fake client: resolve, matrix, and estimate counts); the real-backend gate test counts `FakeRoutingProvider` calls across reruns and every page |
+| No calculation while a location is unresolved, in review, or failed | `test_travel_times_cannot_be_calculated_while_a_location_is_not_ready` (three cases; disabled buttons are clicked too, and nothing is sent) |
+| Large-matrix confirmation above the threshold | `test_a_large_matrix_needs_a_confirmation_tick`, `test_below_the_threshold_no_confirmation_is_asked`, `test_recalculating_current_travel_times_needs_its_own_confirmation` |
+
+Also tested:
+- Only new or changed addresses are sent. A repeat lookup is served by the 30-day cache with no provider call.
+- Not-found addresses are corrected and resolved again; an alternative match can be picked; the far-from-plant distance is shown.
+- Deletion is refused while a location is used, and the plant cannot be deleted. Duplicating keeps the resolution.
+- Locations copy from a saved scenario, and the import contract works end to end.
+- Routing options make travel times stale and are sent with the calculation.
+- Google travel times are not saved or downloaded.
+- Scenario details, the period fit, and defaults; choosing another plant.
+- The address-only sample opens with no coordinates or travel times, and results show no OpenStreetMap map for it.
+- Address-only JSON validates on the backend before and after resolution.
+
+### Manual checks
+
+- **Browser run with the offline provider.** In-app browser; Streamlit on 8525; backend on 8024 with a scratch database and a fake provider answering the V11-A addresses plus two bad ones.
+  - Opened the address-only sample on the Scenario page.
+  - Added "Vaughan, ON" (vague) and "100 Queen St W, Ottawa, ON" (wrong city), then resolved 9 addresses: 7 resolved, 2 need review.
+  - The vague address was caught (low precision). The partial match for Hamilton showed both addresses, the reason, and "41 km from the plant".
+  - **The wrong-city address was not caught.** Ottawa is about 370 km from the Mississauga plant, under the default `GEOCODE_MAX_PLANT_DISTANCE_KM` of 500. The table still shows Google's matched address beside the typed one. Recorded in plan §17: regional fleets should lower the setting. The default was not changed.
+  - Confirmed Hamilton, deleted the two test locations, calculated travel times (7 locations, 49 billable elements, 1 request), and solved: **FEASIBLE, 6 of 6 POs**.
+  - A second session resolved the same 7 addresses with **0 lookups, 7 from the 30-day cache**.
+- **Found and fixed during the browser run**
+  - After Add location, the address field that had focus kept its text, a Streamlit `clear_on_submit` quirk. The form now gets fresh widget keys after each add, and a test asserts the fields are empty.
+  - The used-by text "The plant and used by …" now reads "Plant; used by …".
+  - "1 need review" is now "1 needs review".
+- **Not done: the live-key check.** The plan's manual check calls for a live Google key on a seven-location scenario. It makes billable calls, so it was not run without a go-ahead. The steps above are ready to repeat with the key.
+- Loading a page by URL starts a new session (refresh-safe drafts are an M6 item); the run used in-app navigation.
+
+### Known issues
+
+- OR-Tools/SWIG deprecation warnings remain.
+- Live-key manual check outstanding (see above).
+- Wrong-city matches within 500 km of the plant pass the far-from-plant rule (see above).
+- Stored plans still hold per-leg distances and times derived from the matrix. D6 covers matrices, so plan retention is reviewed with plan history in M6.
+- `.env` was not read or changed.
+
+### Gate status
+
+- **V1.1-M3 COMPLETE**, with the live-key manual check outstanding.
+- A planner gets from typed addresses to a current travel-time matrix, and to a feasible plan, with no coordinate entered. Shown through the real app and backend (offline provider) and in the browser.
+- **Must-haves M-3 and M-4** (address-only locations) delivered.
+- Clean working tree: PASS — the milestone was committed on branch `v1.1` at the user's request (2026-11-18).
+
+### Next action
+
+- Run the live-key manual check when approved.
+- Start V1.1-M4 (fleet, shifts, tasks, import, review).

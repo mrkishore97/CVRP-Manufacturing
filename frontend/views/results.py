@@ -84,6 +84,14 @@ def _route_rows(plan: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _render_route_map(plan: dict[str, Any], locations: list[dict[str, Any]]) -> None:
     st.subheader("Route map")
+    if any(location.get("geocode_source_fingerprint") for location in locations):
+        # Decision D1: locations found by address resolution may be shown on a map only
+        # through Google. The OpenStreetMap preview stays for coordinates supplied in JSON.
+        st.info(
+            "This scenario's locations were found by address resolution, so they are not "
+            "drawn on the OpenStreetMap preview. The stop table and the exports list every stop."
+        )
+        return
     map_data = build_route_map_data(plan, locations)
     if not map_data.markers or map_data.center is None:
         st.info("No mappable route stops with latitude/longitude are available.")

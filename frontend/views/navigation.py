@@ -10,9 +10,11 @@ import streamlit as st
 from frontend.views import (
     advanced_json,
     fleet,
+    locations,
     optimize,
     results,
     review,
+    scenario,
     tasks,
     travel_times,
 )
@@ -28,16 +30,18 @@ class PageSpec:
 
 
 PAGES: tuple[PageSpec, ...] = (
-    PageSpec("json", "Advanced JSON", "Inputs", advanced_json.render),
-    PageSpec("fleet", "Fleet", "Inputs", fleet.render),
-    PageSpec("tasks", "Tasks", "Inputs", tasks.render),
+    PageSpec("scenario", "Scenario", "Build", scenario.render),
+    PageSpec("locations", "Locations", "Build", locations.render),
+    PageSpec("fleet", "Fleet", "Build", fleet.render),
+    PageSpec("tasks", "Tasks", "Build", tasks.render),
     PageSpec("review", "Review", "Plan", review.render),
     PageSpec("travel_times", "Travel times", "Plan", travel_times.render),
     PageSpec("optimize", "Optimize", "Plan", optimize.render),
     PageSpec("results", "Results", "Plan", results.render),
+    PageSpec("json", "Advanced JSON", "Advanced", advanced_json.render),
 )
 PAGES_BY_KEY = {page.key: page for page in PAGES}
-DEFAULT_PAGE = "json"
+DEFAULT_PAGE = "scenario"
 
 
 def current_page() -> PageSpec:

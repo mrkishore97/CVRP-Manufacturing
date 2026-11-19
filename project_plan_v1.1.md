@@ -2,7 +2,7 @@
 
 **Plan revision:** 2 — rewritten from scratch; replaces the obsolete draft dated 2026-07-16  
 **Date:** 2026-11-16  
-**Status:** Decisions D1–D5 settled on 2026-11-16; D6 open (needed before M3). V1.1-M0 (Build 014), V1.1-M1 (Build 015), and V1.1-M2 (Build 016) complete on branch `v1.1`  
+**Status:** Decisions D1–D5 settled on 2026-11-16; D6 settled on 2026-11-18 (option a). V1.1-M0 (Build 014), V1.1-M1 (Build 015), V1.1-M2 (Build 016), and V1.1-M3 (Build 017) complete on branch `v1.1`; the M3 live-key manual check is still to run  
 **Baseline:** tag `v1.0.0` (`2d93b2d`) — 143 automated tests passing when re-run on 2026-11-16  
 **Related records:** `project_plan.md` (Version 1.0 plan, stays unchanged), `build_log.md`
 
@@ -82,7 +82,7 @@ Location opening hours and driver breaks are the most valuable items on that lis
 
 ## 4. Decisions (settled 2026-11-16)
 
-D1–D5 were settled on 2026-11-16 by accepting the proposed defaults; the last column records the outcome. D6 came out of the M0 terms review and is still open. They are listed first because two of them (D1, D2) concern Google's usage terms rather than engineering preference. Changing one later means updating this table before the code.
+D1–D5 were settled on 2026-11-16 by accepting the proposed defaults; the last column records the outcome. D6 came out of the M0 terms review and was settled on 2026-11-18, when the go-ahead for M3 was given on the recommended option. They are listed first because two of them (D1, D2) concern Google's usage terms rather than engineering preference. Changing one later means updating this table before the code.
 
 | # | Decision | Options | Decided |
 |---|---|---|---|
@@ -91,7 +91,7 @@ D1–D5 were settled on 2026-11-16 by accepting the proposed defaults; the last 
 | D3 | **Priority scale.** Labels and how strongly priority counts when not everything fits. | Proposed: 1 Routine (default), 2 Normal, 3 Important, 4 High, 5 Critical; omission weights 1 / 2 / 4 / 8 / 16 (one Critical task outweighs up to fifteen Routine ones). Alternative: strict ranking, where a higher priority is never dropped while a lower one is kept if avoidable. | Proposed scale and weights |
 | D4 | **Local defaults.** Country bias for address matching and the label for load quantities. | Any country code; any unit word (pallets, kg, skids…). | Country `ca` (matches the default `America/Toronto` timezone); unit label "units" |
 | D5 | **Default objective.** | (a) Keep "fewest trucks" as the default, exactly as Version 1.0 behaves. (b) Make "balanced workload" the default for new scenarios. | (a) |
-| D6 | **Persistence of Google travel-time matrices** (raised by the M0 terms review under D2). No express permission to cache Routes API distances or durations was found, and the Routes policy page lists "distance matrix results" among content not to store outside the Services. Version 1.0 keeps a 24-hour matrix cache and saves matrices inside scenarios. | (a) Stop persisting Google-sourced matrices: no matrix in saved scenarios or drafts (only its fingerprint and request), no cross-session cache; travel times are recomputed on demand with the cost estimate shown first. Acceptance criterion 12 then covers geocodes only. (b) Keep Version 1.0 behaviour and accept the risk. (c) Keep Version 1.0 behaviour until legal review, then revisit. | **Open — needed before M3.** Recommended: (a) |
+| D6 | **Persistence of Google travel-time matrices** (raised by the M0 terms review under D2). No express permission to cache Routes API distances or durations was found, and the Routes policy page lists "distance matrix results" among content not to store outside the Services. Version 1.0 keeps a 24-hour matrix cache and saves matrices inside scenarios. | (a) Stop persisting Google-sourced matrices: no matrix in saved scenarios or drafts (only its fingerprint and request), no cross-session cache; travel times are recomputed on demand with the cost estimate shown first. Acceptance criterion 12 then covers geocodes only. (b) Keep Version 1.0 behaviour and accept the risk. (c) Keep Version 1.0 behaviour until legal review, then revisit. | **(a)**, settled 2026-11-18. M3: Google matrices are no longer written to the matrix cache, and the backend drops them from saved scenarios; existing cache rows and saved Google matrices are removed at start-up. The app leaves them out of saves and JSON downloads and keeps them only for the session. Matrices from JSON or the fake provider are unaffected. M6: drafts store only the matrix identity. |
 
 ## 5. Delivery principles
 
@@ -157,6 +157,14 @@ Navigation is a single-script router, so pages can link to each other ("3 addres
 
 As built in M2, `views/` holds `advanced_json`, `fleet` and `tasks` (read-only until M4), `review`, `travel_times`, `optimize` and `results`. It also holds `navigation` (page registry and sidebar), `status` (sidebar status), `validation` (automatic validation) and `components`. The sample loader moved to `frontend/samples.py`. `state/workspace.py` holds the scenario beside its derived results (§7.1) and the transitions between them.
 
+As built in M3:
+
+- **Navigation.** The sidebar groups the pages as Build (Scenario, Locations, Fleet, Tasks), Plan (Review, Travel times, Optimize, Results), and Advanced (JSON). The app opens on Scenario.
+- **New views:** `scenario` and `locations`. Opening a scenario is shared by Scenario and Advanced JSON in `opening`, and saving in `saving`.
+- **New state modules:**
+  - `locations.py`: what to resolve, applying results, confirming, import merge, copy.
+  - `settings.py`: identity, timezone, period, plant, planner defaults.
+
 ### 6.2 Backend additions
 
 ```text
@@ -178,16 +186,16 @@ backend/app/
 |---|---|---|
 | `POST /api/v1/locations/resolve` | New | Resolve addresses by location ID with per-row status (§8.3) |
 | `POST /api/v1/locations/geocode` | Unchanged | Kept for Version 1.0 clients |
-| `POST /api/v1/matrices/estimate` | New | Element count, request count, and whether the cache already has it — before any billable call |
-| `POST /api/v1/matrices/compute` | Unchanged contract | Frontend now also sends routing options |
+| `POST /api/v1/matrices/estimate` | New | Element count, request count, and whether the cache already has it — before any billable call. M3 adds `cache_enabled`: false for Google, whose matrices are not stored (D6) |
+| `POST /api/v1/matrices/compute` | Unchanged contract | Frontend now also sends routing options. M3 adds `cache_enabled`; a Google matrix is never cached (D6) |
 | `POST /api/v1/plans/validate` | Additive | Accepts `optimization_options` / `routing_options`; new warnings (§9.6) |
 | `POST /api/v1/plans/solve` | Additive | Honours options; unique plan ID; runs off the event loop |
-| `GET /api/v1/scenarios` | New | List saved scenarios (ID, name, updated, counts) |
-| `POST /api/v1/scenarios` | Additive | `?if_exists=error` returns 409 instead of overwriting; default stays "replace" |
+| `GET /api/v1/scenarios` | New (M3) | List saved scenarios (ID, name, updated, counts) |
+| `POST /api/v1/scenarios` | Additive | `?if_exists=error` returns 409 instead of overwriting; default stays "replace" (M6). Since M3, POST and PUT drop an embedded Google matrix and report `routing_matrix_dropped` (D6) |
 | `DELETE /api/v1/scenarios/{id}` | New | Delete a scenario and its plans |
 | `PUT/GET/DELETE /api/v1/scenarios/{id}/draft` | New | Refresh-safe working copy (§11.3) |
 | `GET /api/v1/scenarios/{id}/plans` | New | Plan history for comparison |
-| `POST /api/v1/imports/tasks/preview`, `/imports/locations/preview` | New | One import contract, owned by the backend |
+| `POST /api/v1/imports/tasks/preview`, `/imports/locations/preview` | New | One import contract, owned by the backend. Locations in M3, tasks in M4 |
 | `GET /api/v1/config` | New | Non-secret settings the UI needs: default timezone, whether a Google key is configured, limits, region code |
 | `GET /api/v1/health` | Fix | Reports the real version |
 
@@ -234,7 +242,7 @@ As built in M2:
 - **Edits versus replacements.** Applying text from the editor counts as an edit. Opening another scenario counts as a replacement: a sample, a saved scenario, an uploaded file, or an empty scenario. A replacement asks first ("Discard unsaved edits") when the scenario changed since it was last loaded or saved.
 - **When errors block.** Validation errors block an apply only while the current scenario is valid, so an invalid scenario can still be fixed step by step. If the backend is unreachable, nothing replaces a valid scenario.
 - **Clean and complete views.** The editor opens in the clean view, which hides derived geocoding fields. Applying clean JSON keeps the resolution of every location whose ID and address are unchanged. The complete view is applied literally.
-- **Saving.** "Save scenario" stores the complete scenario plus the active matrix, as Version 1.0 did, until D6 decides whether Google travel times may be stored.
+- **Saving.** "Save scenario" stores the complete scenario plus the active matrix. Since M3 (decision D6), a matrix from Google is left out of saves and JSON downloads. It stays usable for the session, and the backend drops it too if a client sends one.
 
 ### 7.4 Dates and times
 
@@ -379,6 +387,14 @@ The Travel times page (replacing the Matrix tab) works from the hidden coordinat
 - Deleting a location reuses the existing matrix by slicing it; no Google call.
 - Validation warns about locations no task or shift uses (`UNUSED_LOCATION`), because each one inflates the matrix quadratically.
 
+As built in M3:
+
+- **Estimate.** It is asked for once per change of locations or routing options, never on a rerun. The cache figure reads "Cached", "Not cached", or "Not stored"; Google matrices are not stored (D6).
+- **Calculate.** When the travel times are already current there is nothing to calculate. Recalculating anyway sits under Advanced, behind its own tick. Every tick starts unticked again after a calculation.
+- **Routing options.** Routing preference and departure time are set in an Advanced form and stored as `routing_options`. The defaults remove the key, so the JSON stays as before.
+- **Unused locations.** The page names the unused locations, worked out in the frontend. The backend `UNUSED_LOCATION` warning arrives with the other Review warnings in M4.
+- **Map.** The Results page no longer draws address-resolved locations on the OpenStreetMap preview (D1). Google links come in M6.
+
 ### 8.8 Samples
 
 Version 1.0 fixtures are untouched and keep solving without a key. One new address-only sample (`v11_a_address_only.json`) uses real public addresses so it can be resolved live in a demo; automated tests resolve it through the fake provider.
@@ -408,11 +424,25 @@ Each list page follows one pattern: a table of rows, with **Add**, **Edit**, **D
 
 Actions: New, Open (picker over saved scenarios), Save, Save as, Duplicate, Delete, Load sample.
 
+As built in M3:
+
+- **Built:** New, Open (picker over `GET /scenarios`), Save, and Open sample.
+- **M6:** Save as, Duplicate, Delete, and the overwrite guard.
+- **Scenario ID.** A new scenario's ID follows its name until the planner chooses one.
+- **Other plant.** "Use another location as the plant" is under Advanced.
+
 ### 9.2 Locations
 
 Table: name, address as typed, matched address, status, used by. Form: **name** and **address** only, with the hint that company names, postal codes, and Plus Codes also work for hard-to-find sites.
 
 Actions: Resolve addresses (N pending), Retry failed, Confirm match, Import locations from a spreadsheet (name, address), Copy locations from a saved scenario.
+
+As built in M3:
+
+- **Review rows.** They show the typed and matched addresses, the reason, the straight-line distance to the plant, and (in the session) Google's alternatives with "Use this address". Picking one only changes the address; resolving stays a separate click.
+- **Import.** Rows update a location with the same ID, or the only location with the same name. Other rows are added.
+- **Copy.** It skips addresses already present and keeps each copied location's provenance, so expired coordinates show as expired.
+- **Delete.** Deleting a used location asks to delete its tasks and shifts too. The plant cannot be deleted.
 
 ### 9.3 Fleet
 
@@ -610,7 +640,8 @@ The server Google key stays in backend environment configuration only. No form, 
 ### 13.2 Cost controls
 
 - Resolve and Calculate are explicit buttons that state how many billable items they will send.
-- Address cache (30 days) and matrix cache (existing) are consulted first; cache hits are shown.
+- The address cache (30 days) is consulted first, and cache hits are shown.
+- Under D6, Google matrices are not cached. A current matrix is reused for the whole session, so it is never recalculated without a click. Matrices from the fake provider are still cached.
 - Only new or changed addresses are resolved.
 - Deleting a location and changing the buffer, objective, fleet, or tasks never call Google.
 - Unused-location warnings keep matrices small.
@@ -626,7 +657,7 @@ Checked on 2026-11-16 and re-read in M0 (2026-11-16); the M0 conclusions, includ
 
 - Geocoding latitude/longitude may be cached for up to 30 consecutive days; place IDs indefinitely — [Geocoding API policies](https://developers.google.com/maps/documentation/geocoding/policies), [Service Specific Terms](https://cloud.google.com/maps-platform/terms/maps-service-terms).
 - Geocoding results displayed on a map must be displayed on a Google map — same policy page. This is decision D1.
-- Routes API content caching is restricted — [Routes API policies](https://developers.google.com/maps/documentation/routes/policies). Coordinates follow the same 30-day ceiling (D2); no express permission to cache distances or durations was found (D6).
+- Routes API content caching is restricted — [Routes API policies](https://developers.google.com/maps/documentation/routes/policies). Coordinates follow the same 30-day ceiling (D2). No express permission to cache distances or durations was found, so Google matrices are not stored (D6, settled 2026-11-18).
 - Google Maps Content shown in the app needs Google attribution unless it is on a Google map that already shows it — both policy pages.
 - Google Maps links carry at most nine waypoints (three in mobile browsers) and 2,048 characters — [Maps URLs](https://developers.google.com/maps/documentation/urls/get-started); longer routes are split into consecutive links.
 - Maps Embed API usage is free and directions mode accepts up to 20 waypoints — [Embed usage and billing](https://developers.google.com/maps/documentation/embed/usage-and-billing).
@@ -642,7 +673,7 @@ Eight milestones. The two must-have outcomes land in M3 (address-only) and M4 (f
 | V1.1-M0 | Baseline, decisions, safety net | S | Complete |
 | V1.1-M1 | Backend address resolution | M | Complete |
 | V1.1-M2 | Frontend foundation; JSON workflow on the new state model | M | Complete |
-| V1.1-M3 | Scenario, plant, locations, travel times — address-only end to end | M | Pending |
+| V1.1-M3 | Scenario, plant, locations, travel times — address-only end to end | M | Complete (live-key manual check outstanding) |
 | V1.1-M4 | Fleet, shifts, tasks, import, review — forms complete | L | Pending |
 | V1.1-M5 | Optimization options and Optimize page | M | Pending |
 | V1.1-M6 | Results, plan history, scenario management, exports | M | Pending |
@@ -725,6 +756,8 @@ At the end of M2 the application does everything Version 1.0 does, on the new st
 
 **Gate:** a planner gets from typed addresses to a current travel-time matrix with no coordinate ever entered. **Must-have M-3/M-4 delivered.**
 
+Status (Build 017): automated checks pass. The gate is shown end to end through the real app and backend with the offline provider. The manual run used the offline provider too. The live-key run waits for a go-ahead, because it makes billable Google calls.
+
 ### V1.1-M4 — Fleet, shifts, tasks, import, review
 
 **Deliverables:** Fleet page with shift generator; Tasks page; task import-and-apply through the backend contract; templates; Review page with new warnings; backend completion of the fields these forms expose — route-distance limit, priority weights, validator re-checks (§10.4, §10.5, §10.7).
@@ -765,7 +798,7 @@ At the end of M2 the application does everything Version 1.0 does, on the new st
 
 ### V1.1-M6 — Results, plan history, scenario management
 
-**Deliverables:** results page in planner language; plan comparison; run sheets and updated exports; scenario list, save-as, duplicate, delete, overwrite guard; drafts and restore; map behaviour per D1; matrix persistence per D6; Google attribution wherever Google-derived addresses or travel times are shown.
+**Deliverables:** results page in planner language; plan comparison; run sheets and updated exports; scenario list, save-as, duplicate, delete, overwrite guard; drafts and restore; map behaviour per D1; matrix persistence per D6 (drafts store only the matrix identity; the rest of D6 landed in M3); Google attribution wherever Google-derived addresses or travel times are shown.
 
 **Automated checks:** local-time and unit formatting; location names resolved for every stop; exports contain settings, priority, and run sheets and remain formula-safe; empty and partial plans export; save/load round-trip is lossless; save-as never overwrites; draft restore after a simulated session loss; expired coordinates stripped on load; Version 1.0 saved scenario opens with defaults.
 
@@ -818,7 +851,7 @@ Version 1.1 is complete when all of the following hold.
 9. Vague, partial, ambiguous, and far-away matches require confirmation before use.
 10. One bad address does not block the others.
 11. Editing an address invalidates only what depends on it.
-12. Google is called only on an explicit action; repeated identical requests are served from cache.
+12. Google is called only on an explicit action; repeated identical requests are served from cache. Under D6 this covers address lookups; travel times are reused within the session instead.
 13. Coordinates older than 30 days are not used.
 
 **Controls are real**
@@ -846,7 +879,7 @@ Version 1.1 is complete when all of the following hold.
 
 | Risk | Impact | Mitigation | Where |
 |---|---|---|---|
-| Google returns a plausible but wrong location | Truck sent to the wrong place | Match-quality rules, side-by-side confirmation, far-from-plant check, region bias | M1, M3 |
+| Google returns a plausible but wrong location | Truck sent to the wrong place | Match-quality rules, side-by-side confirmation, far-from-plant check, region bias. The M3 manual run showed the limit: at the default 500 km, a wrong city about 370 km away (Ottawa for a Mississauga plant) is accepted. The matched address is still shown beside the typed one. Regional fleets should lower `GEOCODE_MAX_PLANT_DISTANCE_KM` | M1, M3 |
 | Forms and JSON drift apart | Lost or conflicting edits | One canonical scenario; round-trip tests | M2 |
 | An address edit reuses old coordinates | Wrong matrix and routes | Provenance fingerprint on every coordinate; backend warning; freshness tests | M1, M2 |
 | Streamlit reruns trigger billable calls | Unexpected cost | Explicit actions; call-count tests; caches | M1, M3 |
@@ -935,4 +968,9 @@ Nothing requested was dropped. Bulk grid editing, incremental matrix refresh, a 
 
 ## 21. Immediate next step
 
-V1.1-M0 (Build 014), V1.1-M1 (Build 015), and V1.1-M2 (Build 016) are complete on branch `v1.1`. Next: settle **D6**, which is needed for M3, then start **V1.1-M3**: scenario, plant, locations, and travel times, address-only end to end.
+V1.1-M0 (Build 014), V1.1-M1 (Build 015), V1.1-M2 (Build 016), and V1.1-M3 (Build 017) are complete on branch `v1.1`.
+
+Next:
+
+- The M3 live-key manual check, once there is a go-ahead for billable Google calls.
+- **V1.1-M4**: fleet, shifts, tasks, import, and review, so a scenario is built and solved without JSON.

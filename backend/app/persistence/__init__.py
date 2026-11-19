@@ -15,6 +15,7 @@ from backend.app.persistence.matrix_cache import (
 from backend.app.persistence.scenario_repository import (
     PersistedPlan,
     PersistedScenario,
+    ScenarioSummary,
     SQLitePlanRepository,
     SQLiteScenarioRepository,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "SQLiteMatrixCache",
     "SQLitePlanRepository",
     "SQLiteScenarioRepository",
+    "ScenarioSummary",
     "build_geocode_cache_key",
     "build_matrix_cache_key",
 ]

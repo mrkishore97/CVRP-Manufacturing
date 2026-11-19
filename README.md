@@ -8,10 +8,21 @@ Version 1 / M9 is complete: the app has the separated FastAPI backend, replaceab
 
 Version 1.1 is in progress on branch `v1.1` (plan: `project_plan_v1.1.md`). The app now has pages in the sidebar rather than tabs:
 
-- **Inputs:** Advanced JSON, Fleet, Tasks.
+- **Build:** Scenario, Locations, Fleet, Tasks.
 - **Plan:** Review, Travel times, Optimize, Results.
+- **Advanced:** JSON.
 
-The scenario is checked automatically whenever it changes, and the sidebar shows what is current. Forms for every input arrive in later milestones; until then the scenario is edited in Advanced JSON. The clean view there shows planner inputs only, and the complete view adds resolved coordinates and travel times.
+Locations need only a name and an address; nobody types coordinates.
+
+1. Press **Resolve addresses**. The backend looks them up through Google and sends only new or changed addresses.
+2. Confirm or correct doubtful matches.
+3. Calculate travel times. The cost estimate is shown first.
+
+The address-only sample (`sample_data/v1_1/`) shows the whole flow.
+
+Fleet and task forms arrive in the next milestone; until then they are edited in Advanced JSON. The scenario is checked automatically whenever it changes, and the sidebar shows what is current.
+
+Google travel times are not stored (decision D6): they are kept for the session only and are left out of saved scenarios and JSON downloads. At start-up the backend removes Google matrices that Version 1.0 cached or saved. Back up `data/route_optimizer.db` first if you want to keep a copy (see [SQLite backup and restore](docs/backup_restore.md)).
 
 ## Architecture boundary
 

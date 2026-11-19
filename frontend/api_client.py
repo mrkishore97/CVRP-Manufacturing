@@ -383,6 +383,23 @@ class BackendClient:
             "GET", f"/api/v1/scenarios/{scenario_id}", timeout=self._timeouts.standard
         )
 
+    def list_scenarios(self) -> list[dict[str, Any]]:
+        """Saved scenarios (ID, name, updated, row counts), most recently updated first."""
+        payload = self._request("GET", "/api/v1/scenarios", timeout=self._timeouts.standard).payload
+        scenarios = payload.get("scenarios")
+        if not isinstance(scenarios, list):
+            raise BackendResponseError("Scenario list response did not contain a list.")
+        return [scenario for scenario in scenarios if isinstance(scenario, dict)]
+
+    def preview_location_import(self, rows: list[dict[str, Any]]) -> ApiResult:
+        """Map spreadsheet rows (keyed by the file's headers) to name and address rows."""
+        return self._request(
+            "POST",
+            "/api/v1/imports/locations/preview",
+            json_payload={"rows": rows},
+            timeout=self._timeouts.validate,
+        )
+
     def _request(
         self,
         method: str,

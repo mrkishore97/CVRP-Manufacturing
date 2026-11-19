@@ -70,6 +70,7 @@ async def estimate_matrix(
         billable_request_count=0 if result.cache_hit else estimate.request_count,
         confirmation_threshold_elements=settings.matrix_confirm_elements,
         confirmation_required=billable > settings.matrix_confirm_elements,
+        cache_enabled=result.cache_enabled,
     )
 
 
@@ -94,4 +95,5 @@ async def compute_matrix(
         matrix=result.matrix,
         cache_hit=result.cache_hit,
         cache_key=result.cache_key,
+        cache_enabled=result.cache_enabled,
     )

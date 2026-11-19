@@ -20,7 +20,13 @@ def run[T](awaitable: Coroutine[Any, Any, T]) -> T:
     return asyncio.run(awaitable)
 
 
-def test_cache_hit_prevents_second_google_http_call(tmp_path: Path) -> None:
+def test_google_matrices_are_never_cached_decision_d6(tmp_path: Path) -> None:
+    """Changed in V1.1-M3 by decision D6 (plan §4).
+
+    Version 1.0 asserted that the second identical request was a cache hit with one
+    HTTP call. Google matrices are no longer stored, so both requests call Google and
+    the cache table stays empty.
+    """
     calls = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -57,10 +63,20 @@ def test_cache_hit_prevents_second_google_http_call(tmp_path: Path) -> None:
         RoutingLocation("B", "B", 44.0, -80.0),
     )
 
+    estimate = service.estimate_matrix(locations, RoutingOptions())
     first = run(service.compute_matrix(locations, RoutingOptions()))
     second = run(service.compute_matrix(locations, RoutingOptions()))
 
+    assert not estimate.cache_enabled
+    assert not estimate.cache_hit
     assert not first.cache_hit
-    assert second.cache_hit
-    assert calls == 1
-    assert second.matrix == first.matrix
+    assert not second.cache_hit
+    assert not first.cache_enabled
+    assert calls == 2
+    assert first.matrix.source == "google_routes"
+    assert first.matrix.expires_at is None
+    assert second.matrix.distance_meters == first.matrix.distance_meters
+    assert cache.get(first.cache_key, now=now) is None
+    with SQLiteDatabase(tmp_path / "matrix.db").connect() as connection:
+        rows = connection.execute("SELECT COUNT(*) FROM route_matrix_cache").fetchone()
+    assert rows[0] == 0

@@ -21,6 +21,7 @@ def render(ctx: AppContext) -> None:
     status = ctx.status
     checks = (
         ("Inputs are valid", status.validation_valid),
+        ("Every location is resolved", status.locations_usable),
         ("Travel times are current", status.matrix_current),
         ("Backend is connected", ctx.connected),
     )

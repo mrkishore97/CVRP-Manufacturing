@@ -102,6 +102,11 @@ class GoogleRoutingProvider:
         return "google_routes"
 
     @property
+    def matrix_storage_allowed(self) -> bool:
+        """Decision D6: Routes API distances and durations are never stored."""
+        return False
+
+    @property
     def limits(self) -> RoutingLimits:
         return self._limits
 

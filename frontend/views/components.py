@@ -9,7 +9,7 @@ workflows untestable (plan risk "Navigation change breaks UI testability").
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -27,13 +27,16 @@ from frontend.api_client import (
     BackendUnavailableError,
 )
 from frontend.state.readiness import WorkflowStatus
-from frontend.state.workspace import Workspace
+from frontend.state.workspace import Workspace, edit
 
 WORKSPACE_KEY = "workspace"
 PAGE_KEY = "current_page"
 FLASH_KEY = "flash_message"
 KEPT_SUFFIX = "__kept"
-PERSISTENT_WIDGET_KEYS = ("json_editor_text", "json_view_mode")
+EDITOR_KEY = "json_editor_text"
+EDITOR_SOURCE_KEY = "json_editor_source"
+EDITOR_FILLED_KEY = "json_editor_filled_text"
+PERSISTENT_WIDGET_KEYS = (EDITOR_KEY, "json_view_mode")
 """Widgets whose value must survive visiting another page (Streamlit drops it)."""
 
 
@@ -58,6 +61,27 @@ def get_workspace() -> Workspace:
 
 def set_workspace(workspace: Workspace) -> None:
     st.session_state[WORKSPACE_KEY] = workspace
+
+
+def commit_edit(
+    scenario: Mapping[str, Any],
+    *,
+    message: str | None = None,
+    renamed_locations: Mapping[str, str] | None = None,
+) -> None:
+    """Make a form edit the current scenario, then rerun so every page shows it."""
+    set_workspace(edit(get_workspace(), scenario, renamed_locations=renamed_locations))
+    if message:
+        set_flash("success", message)
+    st.rerun()
+
+
+def editor_follows_scenario() -> None:
+    """Treat the JSON editor as unedited, so it is refilled from the scenario."""
+    st.session_state[EDITOR_FILLED_KEY] = st.session_state.get(
+        EDITOR_KEY, kept_widget_value(EDITOR_KEY)
+    )
+    st.session_state[EDITOR_SOURCE_KEY] = None
 
 
 def remember_widget(key: str) -> None:

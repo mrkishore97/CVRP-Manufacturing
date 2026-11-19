@@ -16,8 +16,10 @@ from backend.app.domain.enums import (
     TravelMode,
 )
 from backend.app.domain.geocoding import normalize_region_code
+from backend.app.domain.location_import import ImportedLocation
 from backend.app.domain.models import RoutingMatrix, ensure_aware_utc
-from backend.app.domain.results import PlanResult, ValidationResult
+from backend.app.domain.results import PlanResult, ValidationIssue, ValidationResult
+from backend.app.persistence.scenario_repository import ScenarioSummary
 from backend.app.routing.base import RoutingLocation, RoutingOptions
 
 JsonObject = dict[str, Any]
@@ -159,6 +161,13 @@ class MatrixComputeResponse(BaseModel):
     matrix: RoutingMatrix
     cache_hit: bool
     cache_key: str
+    cache_enabled: bool = Field(
+        default=True,
+        description=(
+            "False when the provider's terms do not allow storing its matrices "
+            "(Google, decision D6): every calculation is billable and nothing is cached."
+        ),
+    )
 
 
 class MatrixEstimateRequest(BaseModel):
@@ -195,6 +204,7 @@ class MatrixEstimateResponse(BaseModel):
     billable_request_count: int
     confirmation_threshold_elements: int
     confirmation_required: bool
+    cache_enabled: bool = True
 
 
 class AddressToResolvePayload(BaseModel):
@@ -392,6 +402,90 @@ class ScenarioResponse(BaseModel):
     payload: JsonObject
     created_at: datetime
     updated_at: datetime
+    routing_matrix_dropped: bool = Field(
+        default=False,
+        description="True when an embedded Google matrix was not stored (decision D6).",
+    )
+
+
+class ScenarioSummaryPayload(BaseModel):
+    """One saved scenario in a list."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scenario_id: str
+    name: str | None
+    created_at: datetime
+    updated_at: datetime
+    location_count: int
+    vehicle_count: int
+    shift_count: int
+    task_count: int
+
+    @classmethod
+    def from_domain(cls, summary: ScenarioSummary) -> ScenarioSummaryPayload:
+        return cls(
+            scenario_id=summary.scenario_id,
+            name=summary.name,
+            created_at=summary.created_at,
+            updated_at=summary.updated_at,
+            location_count=summary.location_count,
+            vehicle_count=summary.vehicle_count,
+            shift_count=summary.shift_count,
+            task_count=summary.task_count,
+        )
+
+
+class ScenarioListResponse(BaseModel):
+    """Saved scenarios, most recently updated first."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    scenarios: tuple[ScenarioSummaryPayload, ...]
+
+
+class LocationImportPreviewRequest(BaseModel):
+    """Rows read from a location spreadsheet, keyed by the file's own headers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rows: tuple[dict[str, str | int | float | bool | None], ...] = Field(
+        min_length=1, max_length=5_000
+    )
+
+
+class ImportedLocationPayload(BaseModel):
+    """One canonical location row; it has no coordinates until it is resolved."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    row_number: int
+    name: str
+    address: str
+    location_id: str | None
+
+    @classmethod
+    def from_domain(cls, row: ImportedLocation) -> ImportedLocationPayload:
+        return cls(
+            row_number=row.row_number,
+            name=row.name,
+            address=row.address,
+            location_id=row.location_id,
+        )
+
+
+class LocationImportPreviewResponse(BaseModel):
+    """Mapped rows and issues; the import is applied only if ``valid``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    valid: bool
+    rows: tuple[ImportedLocationPayload, ...]
+    issues: tuple[ValidationIssue, ...]
+    column_mapping: dict[str, str]
+    unknown_columns: tuple[str, ...]
 
 
 class PlanResponse(BaseModel):

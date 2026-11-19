@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -21,6 +22,25 @@ class PersistedScenario:
     payload: JsonObject
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ScenarioSummary:
+    """One saved scenario as listed: identity, timestamps, and row counts."""
+
+    scenario_id: str
+    name: str | None
+    created_at: datetime
+    updated_at: datetime
+    location_count: int
+    vehicle_count: int
+    shift_count: int
+    task_count: int
+
+
+def _count(payload: JsonObject, key: str) -> int:
+    value = payload.get(key)
+    return len(value) if isinstance(value, list) else 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +131,68 @@ class SQLiteScenarioRepository:
             created_at=_parse_datetime(row[2]),
             updated_at=_parse_datetime(row[3]),
         )
+
+    def list_summaries(self) -> tuple[ScenarioSummary, ...]:
+        """Every saved scenario, most recently updated first."""
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT scenario_id, payload_json, created_at, updated_at
+                FROM scenarios
+                ORDER BY updated_at DESC, scenario_id
+                """
+            ).fetchall()
+        summaries: list[ScenarioSummary] = []
+        for scenario_id, payload_json, created_at, updated_at in rows:
+            try:
+                payload = json.loads(payload_json)
+            except (TypeError, ValueError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            name = payload.get("name")
+            summaries.append(
+                ScenarioSummary(
+                    scenario_id=scenario_id,
+                    name=str(name) if isinstance(name, str) and name.strip() else None,
+                    created_at=_parse_datetime(created_at),
+                    updated_at=_parse_datetime(updated_at),
+                    location_count=_count(payload, "locations"),
+                    vehicle_count=_count(payload, "vehicles"),
+                    shift_count=_count(payload, "vehicle_shifts"),
+                    task_count=_count(payload, "tasks"),
+                )
+            )
+        return tuple(summaries)
+
+    def rewrite_payloads(self, transform: Callable[[JsonObject], JsonObject | None]) -> int:
+        """Apply ``transform`` to every stored payload; returns how many changed.
+
+        ``transform`` returns the replacement payload, or ``None`` to leave the row
+        alone. ``updated_at`` is kept: a retention sweep is not a planner's save.
+        """
+        with self._database.connect() as connection:
+            rows = connection.execute("SELECT scenario_id, payload_json FROM scenarios").fetchall()
+            changed = 0
+            for scenario_id, payload_json in rows:
+                try:
+                    payload = json.loads(payload_json)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                replacement = transform(payload)
+                if replacement is None:
+                    continue
+                connection.execute(
+                    "UPDATE scenarios SET payload_json = ? WHERE scenario_id = ?",
+                    (
+                        json.dumps(replacement, sort_keys=True, separators=(",", ":")),
+                        scenario_id,
+                    ),
+                )
+                changed += 1
+        return changed
 
 
 class SQLitePlanRepository:

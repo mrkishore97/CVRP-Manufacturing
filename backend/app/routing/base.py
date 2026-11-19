@@ -106,3 +106,12 @@ class RoutingProvider(Protocol):
     def provider_name(self) -> str:
         """Stable provider identifier used in cache keys and metadata."""
         ...
+
+    @property
+    def matrix_storage_allowed(self) -> bool:
+        """Whether this provider's matrices may be kept beyond one request.
+
+        Decision D6: Google travel-time matrices are not stored (no matrix cache, no
+        saved copies); deterministic offline matrices may be.
+        """
+        ...

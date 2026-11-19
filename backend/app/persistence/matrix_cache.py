@@ -168,6 +168,28 @@ class SQLiteMatrixCache:
                 ),
             )
 
+    def purge_source(self, source: str) -> int:
+        """Delete every row whose matrix came from ``source``; returns the count.
+
+        Used at start-up to remove Google matrices cached by Version 1.0 (decision D6).
+        """
+        removed = 0
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT cache_key, payload_json FROM route_matrix_cache"
+            ).fetchall()
+            for cache_key, payload_json in rows:
+                try:
+                    payload = json.loads(payload_json)
+                except (TypeError, ValueError):
+                    payload = None
+                if not isinstance(payload, dict) or payload.get("source") == source:
+                    connection.execute(
+                        "DELETE FROM route_matrix_cache WHERE cache_key = ?", (cache_key,)
+                    )
+                    removed += 1
+        return removed
+
     def clear_expired(self, *, now: datetime | None = None) -> int:
         """Delete expired rows and return the number removed."""
         current_time = (now or self._now()).astimezone(UTC).isoformat()
