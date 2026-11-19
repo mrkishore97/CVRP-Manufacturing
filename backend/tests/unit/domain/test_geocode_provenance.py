@@ -64,6 +64,16 @@ def test_fingerprint_is_self_describing_and_stable() -> None:
     assert address_fingerprint(SUPPLIER_ADDRESS, "us") != fingerprint
 
 
+def test_fingerprint_golden_values_shared_with_the_frontend() -> None:
+    """The frontend pins the same values (frontend/tests/test_state_freshness.py)."""
+    assert address_fingerprint(SUPPLIER_ADDRESS, "ca") == (
+        "v1:ca:8392875975766cd34689822bd4d7b00da53eb83d4bca2af3e09a66d9ba916052"
+    )
+    assert address_fingerprint("100 Fixture Plant Road, Toronto, ON", None) == (
+        "v1:-:c0693830671573be9e62edab32f173f6a4832db24818c2f21ee517991cb38a52"
+    )
+
+
 def test_fingerprint_matches_only_the_address_that_produced_it() -> None:
     fingerprint = address_fingerprint(SUPPLIER_ADDRESS, "ca")
 

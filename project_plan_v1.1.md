@@ -2,7 +2,7 @@
 
 **Plan revision:** 2 — rewritten from scratch; replaces the obsolete draft dated 2026-07-16  
 **Date:** 2026-11-16  
-**Status:** Decisions D1–D5 settled on 2026-11-16; D6 open (needed before M3). V1.1-M0 complete (Build 014) and V1.1-M1 complete (Build 015) on branch `v1.1`  
+**Status:** Decisions D1–D5 settled on 2026-11-16; D6 open (needed before M3). V1.1-M0 (Build 014), V1.1-M1 (Build 015), and V1.1-M2 (Build 016) complete on branch `v1.1`  
 **Baseline:** tag `v1.0.0` (`2d93b2d`) — 143 automated tests passing when re-run on 2026-11-16  
 **Related records:** `project_plan.md` (Version 1.0 plan, stays unchanged), `build_log.md`
 
@@ -151,7 +151,11 @@ frontend/
 
 `session_models.py` is superseded by `state/`. Its tests are migrated, not deleted: every Version 1.0 invalidation behaviour keeps an equivalent test.
 
-Navigation uses `st.navigation` with `st.Page` callables, so pages can link to each other ("3 addresses need review → open Locations"). A spike on 2026-11-16 confirmed that `st.navigation`, `st.form`, and in-app `st.switch_page` all run under Streamlit's `AppTest` in the pinned version 1.43.2; `AppTest.switch_page()` does not work with callable pages, so tests navigate through in-app controls.
+Navigation is a single-script router, so pages can link to each other ("3 addresses need review → open Locations"). The current page is kept in session state and in the `?page=` URL parameter, so a browser refresh stays on the same page.
+
+*Changed in M2 (2026-11-18).* The plan first chose `st.navigation` with `st.Page` callables, based on a spike on 2026-11-16. Re-checked in M2: under `AppTest` in the pinned 1.43.2, `st.switch_page` reaches the target page, but the next interaction on that page re-renders the default page, so multi-page workflows could not be tested. M2 therefore uses the fallback named in the risk register (§17). Page modules are unchanged by the choice.
+
+As built in M2, `views/` holds `advanced_json`, `fleet` and `tasks` (read-only until M4), `review`, `travel_times`, `optimize` and `results`. It also holds `navigation` (page registry and sidebar), `status` (sidebar status), `validation` (automatic validation) and `components`. The sample loader moved to `frontend/samples.py`. `state/workspace.py` holds the scenario beside its derived results (§7.1) and the transitions between them.
 
 ### 6.2 Backend additions
 
@@ -224,6 +228,13 @@ Saving a form runs a pure state function (`upsert_task`, `delete_location`, `ren
 6. Forms re-render from the new scenario.
 
 Invalid JSON can never replace a valid scenario.
+
+As built in M2:
+
+- **Edits versus replacements.** Applying text from the editor counts as an edit. Opening another scenario counts as a replacement: a sample, a saved scenario, an uploaded file, or an empty scenario. A replacement asks first ("Discard unsaved edits") when the scenario changed since it was last loaded or saved.
+- **When errors block.** Validation errors block an apply only while the current scenario is valid, so an invalid scenario can still be fixed step by step. If the backend is unreachable, nothing replaces a valid scenario.
+- **Clean and complete views.** The editor opens in the clean view, which hides derived geocoding fields. Applying clean JSON keeps the resolution of every location whose ID and address are unchanged. The complete view is applied literally.
+- **Saving.** "Save scenario" stores the complete scenario plus the active matrix, as Version 1.0 did, until D6 decides whether Google travel times may be stored.
 
 ### 7.4 Dates and times
 
@@ -588,6 +599,8 @@ Fingerprints are pure functions over the canonical scenario:
 
 A stale plan is hidden and cannot be exported as current. Earlier plans remain available, clearly dated, in plan history.
 
+As built in M2, the matrix-input fingerprint also includes each location's normalised address. Without it, editing an address would not make travel times stale for a location whose matrix came from JSON and which has no coordinates. Renaming a location ID keeps the matrix current by renaming it there too, and deleting an unused location slices the matrix.
+
 ## 13. Security, cost, and Google terms
 
 ### 13.1 Credentials
@@ -628,7 +641,7 @@ Eight milestones. The two must-have outcomes land in M3 (address-only) and M4 (f
 |---|---|---|---|
 | V1.1-M0 | Baseline, decisions, safety net | S | Complete |
 | V1.1-M1 | Backend address resolution | M | Complete |
-| V1.1-M2 | Frontend foundation; JSON workflow on the new state model | M | Pending |
+| V1.1-M2 | Frontend foundation; JSON workflow on the new state model | M | Complete |
 | V1.1-M3 | Scenario, plant, locations, travel times — address-only end to end | M | Pending |
 | V1.1-M4 | Fleet, shifts, tasks, import, review — forms complete | L | Pending |
 | V1.1-M5 | Optimization options and Optimize page | M | Pending |
@@ -837,7 +850,7 @@ Version 1.1 is complete when all of the following hold.
 | Forms and JSON drift apart | Lost or conflicting edits | One canonical scenario; round-trip tests | M2 |
 | An address edit reuses old coordinates | Wrong matrix and routes | Provenance fingerprint on every coordinate; backend warning; freshness tests | M1, M2 |
 | Streamlit reruns trigger billable calls | Unexpected cost | Explicit actions; call-count tests; caches | M1, M3 |
-| Navigation change breaks UI testability | Untested pages | Spike already passed; fallback is a single-script router | M2 |
+| Navigation change breaks UI testability | Untested pages | Occurred in M2: `AppTest` loses the page after `st.switch_page`; the single-script router fallback is in use | M2 |
 | Form state lost on refresh | Planner re-enters everything | URL-held scenario ID and backend drafts | M6 |
 | A new option silently changes default behaviour | Version 1.0 results shift | Characterization tests from M0 run in every milestone | M0–M7 |
 | Priority read as a guarantee | Wrong expectations | Wording in form, guide, and diagnostics; explicit tests | M4 |
@@ -922,4 +935,4 @@ Nothing requested was dropped. Bulk grid editing, incremental matrix refresh, a 
 
 ## 21. Immediate next step
 
-V1.1-M0 (Build 014) and V1.1-M1 (Build 015) are complete on branch `v1.1`. Next: **V1.1-M2** — frontend foundation; settle D6 before M3.
+V1.1-M0 (Build 014), V1.1-M1 (Build 015), and V1.1-M2 (Build 016) are complete on branch `v1.1`. Next: settle **D6**, which is needed for M3, then start **V1.1-M3**: scenario, plant, locations, and travel times, address-only end to end.

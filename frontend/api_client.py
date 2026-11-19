@@ -83,6 +83,44 @@ class HealthStatus:
 
 
 @dataclass(frozen=True, slots=True)
+class BackendConfig:
+    """Frontend view of ``GET /config``; it never contains a credential."""
+
+    default_timezone: str
+    google_maps_configured: bool
+    geocode_region_code: str | None
+    geocode_cache_ttl_seconds: int
+    geocode_max_plant_distance_km: float
+    matrix_confirm_elements: int
+    solver_time_limit_seconds: int
+    limits: dict[str, int]
+
+    @classmethod
+    def from_payload(cls, payload: Any) -> BackendConfig:
+        if not isinstance(payload, dict):
+            raise BackendResponseError("Backend config response was not a JSON object.")
+        try:
+            limits = payload["limits"]
+            if not isinstance(limits, dict):
+                raise TypeError("limits")
+            region = payload.get("geocode_region_code")
+            return cls(
+                default_timezone=str(payload["default_timezone"]),
+                google_maps_configured=bool(payload["google_maps_configured"]),
+                geocode_region_code=str(region) if region is not None else None,
+                geocode_cache_ttl_seconds=int(payload["geocode_cache_ttl_seconds"]),
+                geocode_max_plant_distance_km=float(payload["geocode_max_plant_distance_km"]),
+                matrix_confirm_elements=int(payload["matrix_confirm_elements"]),
+                solver_time_limit_seconds=int(payload["solver_time_limit_seconds"]),
+                limits={str(key): int(value) for key, value in limits.items()},
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise BackendResponseError(
+                "Backend config response is missing required fields."
+            ) from exc
+
+
+@dataclass(frozen=True, slots=True)
 class ApiResult:
     """Generic parsed JSON API response used by the Streamlit workflow."""
 
@@ -221,19 +259,73 @@ class BackendClient:
             timeout=self._timeouts.geocode,
         )
 
+    def resolve_locations(
+        self,
+        locations: list[dict[str, Any]],
+        *,
+        plant_location_id: str | None = None,
+        plant_coordinates: dict[str, float] | None = None,
+        region_code: str | None = None,
+        force_refresh: bool = False,
+    ) -> ApiResult:
+        """Resolve addresses by location ID; each row comes back with its own status.
+
+        ``locations`` rows carry ``location_id``, ``address``, and optionally
+        ``confirmed_place_id``. ``region_code`` ``None`` uses the server default.
+        """
+        body: dict[str, Any] = {"locations": locations, "force_refresh": force_refresh}
+        if plant_location_id is not None:
+            body["plant_location_id"] = plant_location_id
+        if plant_coordinates is not None:
+            body["plant_coordinates"] = plant_coordinates
+        if region_code is not None:
+            body["region_code"] = region_code
+        return self._request(
+            "POST",
+            "/api/v1/locations/resolve",
+            json_payload=body,
+            timeout=self._timeouts.geocode,
+        )
+
+    def estimate_matrix(
+        self,
+        locations: list[dict[str, Any]],
+        *,
+        options: dict[str, Any] | None = None,
+    ) -> ApiResult:
+        """Billable size of a matrix and whether it is cached; never calls Google."""
+        body: dict[str, Any] = {"locations": locations}
+        if options is not None:
+            body["options"] = options
+        return self._request(
+            "POST",
+            "/api/v1/matrices/estimate",
+            json_payload=body,
+            timeout=self._timeouts.standard,
+        )
+
     def compute_matrix(
         self,
         locations: list[dict[str, Any]],
         *,
         force_refresh: bool = False,
+        options: dict[str, Any] | None = None,
     ) -> ApiResult:
         """Compute a route matrix through the backend."""
+        body: dict[str, Any] = {"locations": locations, "force_refresh": force_refresh}
+        if options is not None:
+            body["options"] = options
         return self._request(
             "POST",
             "/api/v1/matrices/compute",
-            json_payload={"locations": locations, "force_refresh": force_refresh},
+            json_payload=body,
             timeout=self._timeouts.matrix,
         )
+
+    def get_config(self) -> BackendConfig:
+        """Non-secret backend settings: defaults, limits, and whether Google is configured."""
+        payload = self._request("GET", "/api/v1/config", timeout=self._timeouts.standard).payload
+        return BackendConfig.from_payload(payload)
 
     def validate_plan(self, payload: dict[str, Any]) -> WorkflowResponse:
         """Validate a planning payload and summarize the response."""

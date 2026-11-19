@@ -23,6 +23,14 @@ _ANY_OPERATION_RESPONSE = {
     "environment": "test",
     "validation": {"valid": True, "issues": []},
     "plan": {"plan_id": "PLAN-1", "status": "FEASIBLE"},
+    "default_timezone": "America/Toronto",
+    "google_maps_configured": True,
+    "geocode_region_code": "ca",
+    "geocode_cache_ttl_seconds": 2_592_000,
+    "geocode_max_plant_distance_km": 500.0,
+    "matrix_confirm_elements": 400,
+    "solver_time_limit_seconds": 10,
+    "limits": {"max_locations": 200},
 }
 
 _OPERATIONS: dict[str, Callable[[BackendClient], object]] = {
@@ -35,6 +43,9 @@ _OPERATIONS: dict[str, Callable[[BackendClient], object]] = {
     "export_plan": lambda client: client.export_plan("PLAN-1"),
     "save_scenario": lambda client: client.save_scenario({"scenario_id": "S"}),
     "load_scenario": lambda client: client.load_scenario("S"),
+    "resolve": lambda client: client.resolve_locations([{"location_id": "P", "address": "x"}]),
+    "estimate": lambda client: client.estimate_matrix([{"location_id": "PLANT"}]),
+    "config": lambda client: client.get_config(),
 }
 
 
@@ -69,6 +80,9 @@ def _timeout_seen_by(
         ("export_plan", 15.0),
         ("save_scenario", 15.0),
         ("load_scenario", 15.0),
+        ("resolve", 60.0),
+        ("estimate", 15.0),
+        ("config", 15.0),
     ],
 )
 def test_each_operation_uses_its_own_timeout(operation_name: str, expected_seconds: float) -> None:
@@ -331,3 +345,86 @@ def test_scenario_save_and_load_round_trip_client_payload() -> None:
         ("POST", "/api/v1/scenarios", scenario_payload),
         ("GET", "/api/v1/scenarios/SCENARIO-ROUNDTRIP", None),
     ]
+
+
+def _recording_client(
+    response_body: dict[str, object],
+) -> tuple[BackendClient, list[httpx.Request]]:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=response_body, request=request)
+
+    return BackendClient("http://backend.test", transport=httpx.MockTransport(handler)), seen
+
+
+def test_resolve_client_sends_only_the_fields_given() -> None:
+    client, seen = _recording_client({"request_id": "r", "results": [], "summary": {}})
+
+    client.resolve_locations([{"location_id": "PLANT", "address": "100 Plant Road"}])
+    client.resolve_locations(
+        [{"location_id": "ACME", "address": "1 Acme Way", "confirmed_place_id": "p-1"}],
+        plant_location_id="PLANT",
+        plant_coordinates={"latitude": 43.7, "longitude": -79.4},
+        region_code="",
+        force_refresh=True,
+    )
+
+    assert seen[0].url.path == "/api/v1/locations/resolve"
+    assert json.loads(seen[0].content) == {
+        "locations": [{"location_id": "PLANT", "address": "100 Plant Road"}],
+        "force_refresh": False,
+    }
+    assert json.loads(seen[1].content) == {
+        "locations": [
+            {"location_id": "ACME", "address": "1 Acme Way", "confirmed_place_id": "p-1"}
+        ],
+        "force_refresh": True,
+        "plant_location_id": "PLANT",
+        "plant_coordinates": {"latitude": 43.7, "longitude": -79.4},
+        "region_code": "",
+    }
+
+
+def test_estimate_and_compute_send_routing_options_only_when_given() -> None:
+    client, seen = _recording_client({"matrix": {}, "cache_hit": False})
+    locations = [{"location_id": "PLANT"}]
+    options = {"routing_preference": "TRAFFIC_AWARE"}
+
+    client.estimate_matrix(locations)
+    client.estimate_matrix(locations, options=options)
+    client.compute_matrix(locations)
+    client.compute_matrix(locations, options=options)
+
+    assert [request.url.path for request in seen] == [
+        "/api/v1/matrices/estimate",
+        "/api/v1/matrices/estimate",
+        "/api/v1/matrices/compute",
+        "/api/v1/matrices/compute",
+    ]
+    bodies = [json.loads(request.content) for request in seen]
+    assert bodies[0] == {"locations": locations}
+    assert bodies[1] == {"locations": locations, "options": options}
+    assert bodies[2] == {"locations": locations, "force_refresh": False}
+    assert bodies[3] == {"locations": locations, "force_refresh": False, "options": options}
+
+
+def test_config_client_parses_the_non_secret_settings() -> None:
+    client, seen = _recording_client(_ANY_OPERATION_RESPONSE)
+
+    config = client.get_config()
+
+    assert seen[0].method == "GET"
+    assert seen[0].url.path == "/api/v1/config"
+    assert config.google_maps_configured is True
+    assert config.geocode_region_code == "ca"
+    assert config.matrix_confirm_elements == 400
+    assert config.limits == {"max_locations": 200}
+
+
+def test_config_client_rejects_an_incomplete_response() -> None:
+    client, _ = _recording_client({"default_timezone": "America/Toronto"})
+
+    with pytest.raises(BackendResponseError, match="config response"):
+        client.get_config()

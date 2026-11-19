@@ -3,7 +3,7 @@
 **Purpose:** Chronological implementation and verification record  
 **Project plan:** `project_plan.md` (Version 1.0); `project_plan_v1.1.md` (Version 1.1, from Build 014)  
 **Started:** 2026-06-21  
-**Current milestone:** Version 1.1 — V1.1-M1 complete on branch `v1.1`; next V1.1-M2
+**Current milestone:** Version 1.1 — V1.1-M2 complete on branch `v1.1`; next V1.1-M3 (needs D6)
 
 ## Logging rules
 
@@ -1180,3 +1180,129 @@ New tests (mocked HTTP or fake provider; no key needed), mapped to the plan's M1
 ### Next action
 
 - Settle D6; start V1.1-M2 (frontend foundation).
+
+## 2026-11-18 — Build 016 — V1.1-M2 — Frontend foundation
+
+Plan: `project_plan_v1.1.md` §14, V1.1-M2 (design in §6.1, §7, §12).
+
+### Scope
+
+- `state/` modules.
+- Navigation shell with a status sidebar.
+- Advanced JSON page: view, edit, validate, apply, upload, and download, in clean and complete modes.
+- API client methods for the new endpoints.
+- Automatic validation on change.
+- The app does everything Version 1.0 does, on the new state model, with JSON as the only editor. No forms yet.
+
+### Decision taken in this milestone: navigation (plan §6.1, risk §17)
+
+The plan chose `st.navigation` with `st.Page` callables, based on a spike on 2026-11-16. It was re-checked before building:
+
+- Under `AppTest` in the pinned Streamlit 1.43.2, `st.switch_page` reaches the target page.
+- The next interaction on that page re-renders the *default* page, and the click is lost. A multi-page workflow (navigate, then solve) could not be tested.
+- The plan's risk register names a fallback for this: a single-script router.
+
+The router keeps the current page in session state and in the `?page=` URL parameter, so a browser refresh stays on the page. The plan's §6.1 and §17 were updated before the code.
+
+### Changes
+
+- **`frontend/state/`** (new; pure, no Streamlit import):
+  - `scenario_state.py`: create; upsert; delete that refuses while the item is referenced, listing the dependants ("used by 1 task and 1 shift"), or deletes them on request; the plant can never be deleted. Renames cascade to every reference. An address change clears the derived geocoding fields; a spacing or case change does not count as one. Also tag removal.
+  - `fingerprints.py`: address, matrix-input, plan-input, and saved fingerprints (plan §12). Names and notes are excluded, which fixes F11. The matrix input also covers the address text, so an address edit makes travel times stale even without coordinates.
+  - `readiness.py`: per-location readiness — resolved, supplied, not resolved, needs review, failed, stale, expired. It mirrors the backend provenance fingerprint; both test suites pin the same golden values, and a backend test compares the two functions directly. `workflow_status()` decides what is current and which actions are allowed.
+  - `workspace.py`: the scenario beside its derived results (validation, active matrix, plan, each with its input fingerprint), and the transitions between them.
+    - Deleting unused locations slices the matrix, and renaming a location ID renames it in the matrix; neither calls Google.
+    - An embedded `routing_matrix` becomes active when its locations match.
+    - "Save scenario" stores the complete scenario plus the active matrix (Version 1.0 behaviour, until D6).
+  - `json_io.py`:
+    - Clean export (planner inputs only) and complete export (adds derived fields and the active matrix).
+    - Parse errors report line and column.
+    - Older matrices using `location_order` are normalised to `location_ids`; the canonical samples use the older name.
+    - Clean-view applies keep the resolution of unchanged addresses.
+  - `ids.py`, `units.py`, `timeutil.py`: ID suggestions; km/m and h:mm conversions; wall-clock text and plant-local display with daylight-saving detection.
+- **`frontend/views/`** (new): pages `advanced_json`, `fleet` and `tasks` (read-only, as in Version 1.0), `review`, `travel_times`, `optimize`, `results`; plus `navigation`, `status`, `validation` and `components`.
+  - Every action handler re-checks its enable condition, because `AppTest` can click disabled buttons.
+  - Values of the editor and its view selector are kept outside Streamlit's widget state, so unapplied JSON survives visiting another page. Streamlit drops a widget's value when its page is not shown; this was found by a test.
+- **`frontend/streamlit_app.py`**: rewritten as a thin shell (client, health, config, automatic validation, router, sidebar), replacing the 782-line tabbed script.
+- **`frontend/samples.py`**: the sample loader, moved out of the app; it now keeps the scenario `name`.
+- **`frontend/api_client.py`**:
+  - New methods `resolve_locations` (60 s), `estimate_matrix` and `get_config` (15 s), and the typed `BackendConfig`.
+  - `compute_matrix` gains optional routing `options`; the request body is unchanged when they are omitted.
+- **Removed:** `frontend/session_models.py`, superseded by `state/`.
+- **Migrated tests:**
+  - `test_session_models.py` (4 tests) → `test_state_freshness.py`, marked "migrated".
+  - `test_streamlit_smoke.py` (4 tests) → `test_streamlit_app.py`, marked "Migrated".
+  - Each Version 1.0 behaviour keeps an equivalent test.
+- **Docs:** README "Current status"; plan §6.1 (navigation and as-built modules), §7.3 (as-built apply rules), §12 (matrix fingerprint), §14, §17, §21.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| `python -m ruff format --check .` | PASS | 127 files already formatted. |
+| `python -m ruff check .` | PASS | All checks passed. |
+| `python -m mypy backend frontend` | PASS | No issues in 121 source files. |
+| `python -m pytest -q` | PASS | **413 passed**: 281 before, minus the 8 migrated tests, plus 140 new. Same 3 OR-Tools/SWIG warnings. |
+| Characterization tests | PASS | Unchanged and green. |
+| `python scripts/validate_m0.py` | PASS | 672 checks. |
+| `python scripts/validate_m9_release.py` | PASS | |
+| `python scripts/review_m2_payloads.py` | PASS | |
+| `python scripts/smoke_m1.py` | PASS | Real backend and the new Streamlit shell start. |
+| `python -m pip check` | PASS | |
+| Boundary test | PASS | No frontend file imports backend code; `state/` and `views/` are scanned recursively. |
+
+Plan M2 checks and their tests:
+
+| Plan check | Tests |
+|---|---|
+| State functions: create, upsert, delete with dependants refused, ID rename cascades, address edit clears derived fields | `test_state_scenario.py` (22) |
+| Every row of the freshness table (§12) | `test_state_freshness.py`: one test per row (names/IDs/notes/defaults, address, add location, delete unused location with slicing, routing options, fleet/shifts/tasks/period/timezone/plant, optimization options, new matrix, older than 30 days), plus ID rename and readiness cases |
+| JSON round-trip in both modes | `test_state_json_io.py`: complete and clean round-trips, through a workspace, carry-over, literal complete apply |
+| Invalid JSON cannot replace the current scenario | `test_streamlit_app.py`: a syntax error, and JSON with validation errors, leave a valid scenario unchanged; an invalid scenario may be replaced |
+| Version 1.0 fixtures load, validate, use the embedded matrix, and solve through `AppTest` | `test_v1_1_m2_frontend_parity.py`: the real app drives the real backend (in-process, over HTTP) for frozen payloads A, C, D, E, F; each plan matches `expected_default_results.json` exactly (status, scheduled and unscheduled tasks, truck-shifts used, distance, diagnostics). B is refused over a valid scenario; over an invalid one it loads, shows `CAPACITY_EXCEEDED`, and cannot be solved |
+| Unit and local-time conversions round-trip, including a DST boundary | `test_state_units_time_ids.py`: UTC to local and back every 30 minutes across both 2026 Toronto transitions; gap and overlap detection |
+| Migrated Version 1.0 frontend tests all pass | Export, import-preview, route-map and API-client tests unchanged and passing; session-model and smoke tests migrated |
+
+Also tested:
+- Validation runs once per change, not on every rerun.
+- Every page renders and is kept in the URL; a fresh session opens the page named in the URL.
+- Unapplied editor text survives navigation.
+- The clean view hides coordinates and the complete view shows them.
+- Replacing an edited scenario asks first.
+- Save and load round-trip.
+- Address-only JSON cannot calculate travel times.
+- No page has a latitude or longitude input.
+
+### Manual checks
+
+- **M0 manual run repeated on the new shell** (real backend under uvicorn, throw-away database; the real app driven by `AppTest`):
+  - Load feasible sample, visit every page, Optimize, Solve.
+  - Result: FEASIBLE, 6 of 6 tasks, 216 km, one truck-shift (`TRUCK-1/TRUCK-1-20260622`) — identical to M0 (Build 014).
+  - Route-stops CSV (2,624 bytes), diagnostics CSV and XLSX built.
+  - Save scenario: the sidebar shows no unsaved edits, and the saved payload includes the matrix.
+  - The backend export was retrieved; the saved scenario reloaded after switching samples.
+- **Real browser** (in-app browser pane; Streamlit on 8515, backend on 8014 with a throw-away database):
+  - Sidebar groups Inputs and Plan, with the current page highlighted and the status panel below.
+  - Optimize showed three green pre-flight checks; Solve opened Results with FEASIBLE, 6 and 0.
+  - A browser refresh stayed on Results. The session's plan is gone after a refresh, as expected; refresh-safe drafts are an M6 item.
+  - Observation: at the pane's narrow width the summary metrics truncate ("America…"); cosmetic.
+- Live Google: not used. No M2 action calls Google.
+
+### Known issues
+
+- OR-Tools/SWIG deprecation warnings remain.
+- **D6 is still open and blocks M3**: travel-time calculation, and whether matrices are stored, are M3's subject.
+- `.env` was not read or changed.
+
+### Gate status
+
+- **V1.1-M2 COMPLETE.**
+- Version 1.0 parity demonstrated (automated, through the real app and backend, and by the repeated M0 manual run): PASS.
+- No frontend import of backend code: PASS.
+- Must-have M-2 (JSON stays available as an advanced view of the same scenario) delivered.
+- Clean working tree: PASS — the milestone was committed on branch `v1.1` at the user's request (2026-11-18).
+
+### Next action
+
+- Settle D6.
+- Start V1.1-M3 (scenario, plant, locations, travel times).

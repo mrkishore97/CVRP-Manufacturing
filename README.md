@@ -6,6 +6,13 @@ A deadline-aware route-planning application for manufacturing pickup, drop, and 
 
 Version 1 / M9 is complete: the app has the separated FastAPI backend, replaceable Streamlit frontend, Google geocoding/Routes matrix integration, deadline-aware solver, scenario persistence, maps, exports, operational documentation, and release-hardening checks.
 
+Version 1.1 is in progress on branch `v1.1` (plan: `project_plan_v1.1.md`). The app now has pages in the sidebar rather than tabs:
+
+- **Inputs:** Advanced JSON, Fleet, Tasks.
+- **Plan:** Review, Travel times, Optimize, Results.
+
+The scenario is checked automatically whenever it changes, and the sidebar shows what is current. Forms for every input arrive in later milestones; until then the scenario is edited in Advanced JSON. The clean view there shows planner inputs only, and the complete view adds resolved coordinates and travel times.
+
 ## Architecture boundary
 
 ```text
