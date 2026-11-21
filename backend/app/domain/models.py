@@ -25,6 +25,7 @@ from backend.app.domain.enums import (
     TaskType,
     TravelMode,
 )
+from backend.app.domain.options import OptimizationOptions
 
 Identifier = Annotated[
     str,
@@ -298,6 +299,7 @@ class PlanningRequest(DomainModel):
     vehicle_shifts: tuple[VehicleShift, ...]
     tasks: tuple[Task, ...]
     routing_matrix: RoutingMatrix | None = None
+    optimization_options: OptimizationOptions = Field(default_factory=OptimizationOptions)
 
     @model_validator(mode="after")
     def validate_references_and_business_rules(self) -> Self:

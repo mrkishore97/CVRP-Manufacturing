@@ -36,6 +36,7 @@ from backend.app.domain.models import (
     Vehicle,
     VehicleShift,
 )
+from backend.app.domain.options import OptimizationOptions
 from backend.app.domain.results import ValidationIssue, ValidationResult
 from backend.app.domain.time_normalization import (
     DateTimeInput,
@@ -573,6 +574,44 @@ def _parse_tasks(
     return tasks, issues, rows_by_task_id
 
 
+def _parse_optimization_options(
+    raw_options: Any, max_time_limit_seconds: int | None
+) -> tuple[OptimizationOptions | None, list[ValidationIssue]]:
+    """Read ``optimization_options``; absent means the Version 1.0 defaults.
+
+    The server's time-limit ceiling is checked here, so a payload cannot ask for a
+    longer solve than the server allows.
+    """
+    section = IssueSection.OPTIMIZATION_OPTIONS
+    if raw_options is None:
+        return OptimizationOptions(), []
+    if not isinstance(raw_options, Mapping):
+        return None, [
+            _issue(
+                ValidationCode.INVALID_VALUE,
+                "optimization_options must be an object.",
+                field="optimization_options",
+                section=section,
+            )
+        ]
+    try:
+        options = OptimizationOptions.model_validate(dict(raw_options))
+    except ValidationError as exc:
+        return None, _validation_issues(exc, prefix="optimization_options", section=section)
+    limit = options.time_limit_seconds
+    if max_time_limit_seconds is not None and limit is not None and limit > max_time_limit_seconds:
+        return None, [
+            _issue(
+                ValidationCode.INVALID_VALUE,
+                f"The time limit of {limit} seconds is above this server's maximum of "
+                f"{max_time_limit_seconds} seconds.",
+                field="optimization_options.time_limit_seconds",
+                section=section,
+            )
+        ]
+    return options, []
+
+
 def _parse_matrix(raw_matrix: Any) -> tuple[RoutingMatrix | None, list[ValidationIssue]]:
     if raw_matrix is None:
         return None, []
@@ -934,11 +973,13 @@ def validate_planning_payload(
     *,
     now: datetime | None = None,
     geocode_max_age_seconds: int = GEOCODE_MAX_AGE_SECONDS,
+    max_time_limit_seconds: int | None = None,
 ) -> ValidationResult:
     """Normalize a planning payload and return all actionable validation issues.
 
     ``now`` and ``geocode_max_age_seconds`` only affect the warnings about expired
     address-derived coordinates; they default to the current time and 30 days.
+    ``max_time_limit_seconds`` is the server's ceiling for a requested solver time limit.
     """
     issues: list[ValidationIssue] = []
     timezone_name = str(payload.get("timezone", "America/Toronto"))
@@ -992,6 +1033,10 @@ def validate_planning_payload(
     )
     issues.extend(task_issues)
 
+    options, option_issues = _parse_optimization_options(
+        payload.get("optimization_options"), max_time_limit_seconds
+    )
+    issues.extend(option_issues)
     matrix, matrix_issues = _parse_matrix(payload.get("routing_matrix"))
     issues.extend(matrix_issues)
     issues.extend(
@@ -1043,6 +1088,7 @@ def validate_planning_payload(
             vehicle_shifts=tuple(shifts),
             tasks=tuple(tasks),
             routing_matrix=matrix,
+            optimization_options=options or OptimizationOptions(),
         )
     except ValidationError as exc:
         issues.extend(

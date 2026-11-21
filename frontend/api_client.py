@@ -94,6 +94,7 @@ class BackendConfig:
     matrix_confirm_elements: int
     solver_time_limit_seconds: int
     limits: dict[str, int]
+    solver_max_time_limit_seconds: int = 120
 
     @classmethod
     def from_payload(cls, payload: Any) -> BackendConfig:
@@ -113,6 +114,9 @@ class BackendConfig:
                 matrix_confirm_elements=int(payload["matrix_confirm_elements"]),
                 solver_time_limit_seconds=int(payload["solver_time_limit_seconds"]),
                 limits={str(key): int(value) for key, value in limits.items()},
+                solver_max_time_limit_seconds=int(
+                    payload.get("solver_max_time_limit_seconds", 120)
+                ),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise BackendResponseError(
@@ -341,13 +345,23 @@ class BackendClient:
             validation=ValidationSummary.from_response(result.payload),
         )
 
-    def solve_plan(self, payload: dict[str, Any]) -> WorkflowResponse:
-        """Solve a planning payload and summarize the response."""
+    def solve_plan(
+        self, payload: dict[str, Any], *, time_limit_seconds: int | None = None
+    ) -> WorkflowResponse:
+        """Solve a planning payload and summarize the response.
+
+        With the solve's time limit, the client waits 2 x limit + 20 s, enough for the
+        strict and the partial-plan attempt, and never less than the standard solve
+        timeout.
+        """
+        timeout = self._timeouts.solve
+        if time_limit_seconds is not None:
+            timeout = max(timeout, 2 * time_limit_seconds + 20)
         result = self._request(
             "POST",
             "/api/v1/plans/solve",
             json_payload=payload,
-            timeout=self._timeouts.solve,
+            timeout=timeout,
         )
         return WorkflowResponse(
             raw=result.payload,

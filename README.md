@@ -29,6 +29,14 @@ Trucks, shifts, and PO tasks have forms too, so a complete scenario is built and
 
 The scenario is checked automatically whenever it changes, and the sidebar shows what is current. Advanced JSON remains available for integrations and troubleshooting.
 
+The **Optimize** page decides how plans are made:
+
+- **Objective:** fewest trucks (the default, as in Version 1.0), least travel, or balanced workload.
+- **Search effort:** standard, or thorough, which keeps improving until the time limit.
+- **Travel-time buffer:** plans every leg slower than Google's car times.
+
+No setting relaxes a hard rule, and changing one needs no new travel-time calculation. Each solve is stored as a new plan; the last 20 per scenario are kept. Solves run in a separate worker process, so the backend stays responsive during a long one.
+
 Google travel times are not stored (decision D6): they are kept for the session only and are left out of saved scenarios and JSON downloads. At start-up the backend removes Google matrices that Version 1.0 cached or saved. Back up `data/route_optimizer.db` first if you want to keep a copy (see [SQLite backup and restore](docs/backup_restore.md)).
 
 ## Architecture boundary

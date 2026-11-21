@@ -379,6 +379,10 @@ class ConfigResponse(BaseModel):
     geocode_max_plant_distance_km: float
     matrix_confirm_elements: int
     solver_time_limit_seconds: int
+    solver_max_time_limit_seconds: int = Field(
+        default=120, description="The longest time limit a planner may choose (V1.1-M5)."
+    )
+    plan_history_limit: int = Field(default=20, description="Plans kept per scenario.")
     limits: ConfigLimitsPayload
 
 
@@ -632,6 +636,52 @@ class PlanResponse(BaseModel):
     plan: PlanResult
     scenario_id: str
     created_at: datetime
+
+
+class PlanSummaryPayload(BaseModel):
+    """One stored plan in a scenario's history, with the figures to compare plans."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    plan_id: str
+    created_at: datetime
+    status: str
+    objective_mode: str | None
+    search_effort: str | None
+    travel_time_factor: float | None
+    truck_shifts_used: int
+    total_distance_meters: int
+    longest_route_seconds: int | None
+    scheduled_count: int
+    unscheduled_count: int
+
+    @classmethod
+    def from_plan(cls, plan: PlanResult, stored_at: datetime) -> PlanSummaryPayload:
+        options = plan.optimization_options
+        metrics = plan.metrics
+        return cls(
+            plan_id=plan.plan_id,
+            created_at=plan.created_at or stored_at,
+            status=plan.status.value,
+            objective_mode=options.objective_mode.value if options else None,
+            search_effort=options.search_effort.value if options else None,
+            travel_time_factor=options.travel_time_factor if options else None,
+            truck_shifts_used=len(plan.routes),
+            total_distance_meters=plan.total_distance_meters,
+            longest_route_seconds=metrics.longest_route_seconds if metrics else None,
+            scheduled_count=len(plan.scheduled_task_ids),
+            unscheduled_count=len(plan.unscheduled_task_ids),
+        )
+
+
+class PlanHistoryResponse(BaseModel):
+    """A scenario's stored plans, newest first (V1.1-M5)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    scenario_id: str
+    plans: tuple[PlanSummaryPayload, ...]
 
 
 class PlanExportResponse(BaseModel):

@@ -28,6 +28,8 @@ async def get_config(
         geocode_max_plant_distance_km=settings.geocode_max_plant_distance_km,
         matrix_confirm_elements=settings.matrix_confirm_elements,
         solver_time_limit_seconds=settings.solver_time_limit_seconds,
+        solver_max_time_limit_seconds=settings.solver_max_time_limit_seconds,
+        plan_history_limit=settings.plan_history_limit,
         limits=ConfigLimitsPayload(
             max_request_bytes=settings.api_max_request_bytes,
             max_locations=settings.api_max_locations,

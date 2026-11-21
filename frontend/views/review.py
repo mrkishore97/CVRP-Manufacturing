@@ -34,6 +34,7 @@ SECTIONS: tuple[tuple[str, str, str], ...] = (
     ("vehicle_shifts", "Shifts", "fleet"),
     ("tasks", "Tasks", "tasks"),
     ("routing_matrix", "Travel times", "travel_times"),
+    ("optimization_options", "Optimization settings", "optimize"),
     ("", "Other", "json"),
 )
 EDIT_TARGETS: Mapping[str, str] = {

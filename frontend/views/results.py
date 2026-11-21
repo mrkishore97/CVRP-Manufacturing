@@ -15,6 +15,7 @@ from frontend.export_utils import (
     workbook_bytes,
 )
 from frontend.route_map import RouteMapData, build_route_map_data
+from frontend.state.optimization import options_summary, plan_figures
 from frontend.state.scenario_state import rows
 from frontend.views.components import AppContext, get_workspace, table
 
@@ -40,6 +41,11 @@ def render(ctx: AppContext) -> None:
     col_1.metric("Plan status", str(plan.get("status", "unknown")))
     col_2.metric("Scheduled POs", str(len(scheduled) if isinstance(scheduled, list) else 0))
     col_3.metric("Unscheduled POs", str(len(unscheduled) if isinstance(unscheduled, list) else 0))
+    figures = plan_figures(plan)
+    for column, (label, value) in zip(st.columns(len(figures)), figures.items(), strict=True):
+        column.metric(label, value)
+    options = plan.get("optimization_options")
+    st.caption(f"Made with: {options_summary(options if isinstance(options, dict) else None)}")
 
     route_rows = _route_rows(plan)
     if route_rows:

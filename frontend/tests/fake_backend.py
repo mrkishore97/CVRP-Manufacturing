@@ -54,6 +54,7 @@ class FakeBackend:
         self.import_calls: list[list[dict[str, Any]]] = []
         self.task_import_calls: list[list[dict[str, Any]]] = []
         self.extra_issues: list[dict[str, Any]] = []
+        self.solve_time_limits: list[int | None] = []
         self.template_calls: list[str] = []
         self.list_calls = 0
         self.saved: dict[str, dict[str, Any]] = {}
@@ -101,6 +102,7 @@ class FakeBackend:
             matrix_confirm_elements=self.matrix_confirm_elements,
             solver_time_limit_seconds=10,
             limits={},
+            solver_max_time_limit_seconds=120,
         )
 
     def _validation(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -125,13 +127,17 @@ class FakeBackend:
         raw = {"validation": self._validation(payload)}
         return api_client.WorkflowResponse(raw=raw, request_id="req-validate")
 
-    def solve_plan(self, payload: dict[str, Any]) -> api_client.WorkflowResponse:
+    def solve_plan(
+        self, payload: dict[str, Any], *, time_limit_seconds: int | None = None
+    ) -> api_client.WorkflowResponse:
         self.solve_calls.append(deepcopy(payload))
+        self.solve_time_limits.append(time_limit_seconds)
         raw = {
             "validation": self._validation(payload),
             "plan": {
-                "plan_id": "plan-1",
+                "plan_id": f"PLAN-{len(self.solve_calls)}",
                 "status": "FEASIBLE",
+                "optimization_options": deepcopy(payload.get("optimization_options")),
                 "scheduled_task_ids": [task["task_id"] for task in payload.get("tasks", [])],
                 "unscheduled_task_ids": [],
                 "diagnostics": [],

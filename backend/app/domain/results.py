@@ -11,11 +11,13 @@ from pydantic import Field, field_validator, model_validator
 from backend.app.domain.enums import (
     IssueSection,
     PlanStatus,
+    RoutingPreference,
     StopKind,
     ValidationCode,
     ValidationSeverity,
 )
 from backend.app.domain.models import DomainModel, Identifier, PlanningRequest, ensure_aware_utc
+from backend.app.domain.options import OptimizationOptions
 
 
 class ValidationIssue(DomainModel):
@@ -94,6 +96,11 @@ class PlanRoute(DomainModel):
     service_seconds: int = Field(ge=0)
     waiting_seconds: int = Field(ge=0)
     peak_load: Decimal = Field(ge=0)
+    total_duration_seconds: int | None = Field(
+        default=None,
+        ge=0,
+        description="Shift start to arrival at the end depot, waiting included (V1.1-M5).",
+    )
 
 
 class TaskDiagnostic(DomainModel):
@@ -114,8 +121,49 @@ class TaskDiagnostic(DomainModel):
         return ensure_aware_utc(value) if value is not None else None
 
 
+class MatrixIdentity(DomainModel):
+    """Which travel times a plan was solved with (V1.1-M5)."""
+
+    source: str
+    routing_preference: RoutingPreference
+    created_at: datetime | None = None
+    location_count: int = Field(ge=0)
+    travel_time_factor: float = Field(default=1.0, ge=1.0, le=2.0)
+
+    @field_validator("created_at")
+    @classmethod
+    def normalize_created_at(cls, value: datetime | None) -> datetime | None:
+        return ensure_aware_utc(value) if value is not None else None
+
+
+class PlanMetrics(DomainModel):
+    """Figures for comparing plans (V1.1-M5).
+
+    Route durations run from the shift start to the arrival at the end depot, waiting
+    included; working time is driving plus service, which ``BALANCE_WORKLOAD`` evens
+    out. Utilisations are averages over the truck-shifts used: peak load over
+    capacity, and route duration over the time the route was allowed.
+    """
+
+    truck_shifts_used: int = Field(ge=0)
+    truck_shifts_available: int = Field(ge=0)
+    longest_route_seconds: int = Field(default=0, ge=0)
+    shortest_route_seconds: int = Field(default=0, ge=0)
+    longest_working_seconds: int = Field(
+        default=0, ge=0, description="Driving plus service on the busiest route."
+    )
+    load_utilisation: float = Field(default=0, ge=0)
+    time_utilisation: float = Field(default=0, ge=0)
+    objective_value: int | None = None
+
+
 class PlanResult(DomainModel):
-    """Public planning result contract independent of solver implementation."""
+    """Public planning result contract independent of solver implementation.
+
+    The optional fields added in V1.1-M5 (``created_at``, ``optimization_options``,
+    ``matrix``, ``metrics``) are absent from plans stored by Version 1.0, which stay
+    readable.
+    """
 
     plan_id: Identifier
     status: PlanStatus
@@ -129,3 +177,12 @@ class PlanResult(DomainModel):
     total_waiting_seconds: int = Field(default=0, ge=0)
     solver_elapsed_seconds: float = Field(default=0, ge=0)
     warnings: tuple[str, ...] = ()
+    created_at: datetime | None = None
+    optimization_options: OptimizationOptions | None = None
+    matrix: MatrixIdentity | None = None
+    metrics: PlanMetrics | None = None
+
+    @field_validator("created_at")
+    @classmethod
+    def normalize_created_at(cls, value: datetime | None) -> datetime | None:
+        return ensure_aware_utc(value) if value is not None else None

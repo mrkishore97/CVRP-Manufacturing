@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from backend.app.domain.geocoding import GEOCODE_MAX_AGE_SECONDS, normalize_region_code
@@ -128,6 +128,23 @@ class Settings(BaseSettings):
         le=300,
         validation_alias="SOLVER_TIME_LIMIT_SECONDS",
     )
+    solver_max_time_limit_seconds: int = Field(
+        default=120,
+        ge=1,
+        le=3_600,
+        validation_alias="SOLVER_MAX_TIME_LIMIT_SECONDS",
+    )
+    solver_in_subprocess: bool = Field(
+        default=True,
+        validation_alias="SOLVER_IN_SUBPROCESS",
+        description="Solve in a worker process so the API stays responsive (V1.1-M5).",
+    )
+    plan_history_limit: int = Field(
+        default=20,
+        ge=1,
+        le=1_000,
+        validation_alias="PLAN_HISTORY_LIMIT",
+    )
     api_max_request_bytes: int = Field(
         default=2_000_000,
         ge=1_024,
@@ -158,6 +175,14 @@ class Settings(BaseSettings):
         if value is None or isinstance(value, str):
             return normalize_region_code(value)
         return value
+
+    @model_validator(mode="after")
+    def default_time_limit_within_maximum(self) -> "Settings":
+        if self.solver_time_limit_seconds > self.solver_max_time_limit_seconds:
+            raise ValueError(
+                "SOLVER_TIME_LIMIT_SECONDS must not exceed SOLVER_MAX_TIME_LIMIT_SECONDS"
+            )
+        return self
 
     @property
     def google_maps_configured(self) -> bool:

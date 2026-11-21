@@ -3,7 +3,7 @@
 **Purpose:** Chronological implementation and verification record  
 **Project plan:** `project_plan.md` (Version 1.0); `project_plan_v1.1.md` (Version 1.1, from Build 014)  
 **Started:** 2026-06-21  
-**Current milestone:** Version 1.1 — V1.1-M4 complete on branch `v1.1` (M3 live-key manual check outstanding); next V1.1-M5
+**Current milestone:** Version 1.1 — V1.1-M5 complete on branch `v1.1` (M3 live-key manual check outstanding); next V1.1-M6
 
 ## Logging rules
 
@@ -1610,3 +1610,134 @@ Also tested:
 
 - Run the M3 live-key manual check when approved.
 - Start V1.1-M5 (optimization options and the Optimize page).
+
+## 2026-11-21 — Build 019 — V1.1-M5 — Optimization options and the Optimize page
+
+Plan: `project_plan_v1.1.md` §14, V1.1-M5 (design in §9.7, §10.1–10.3, §10.6, §10.8).
+
+### Scope
+
+- The `optimization_options` contract and bounds.
+- Objective modes, search effort, travel-time buffer, and precomputed transit matrices.
+- Solving off the event loop; unique plan IDs, history, and metadata.
+- The Optimize page.
+
+### Decisions
+
+No open decision blocked M5. D5 (default objective: fewest trucks, as in Version 1.0) is implemented as decided.
+
+### Changes
+
+- **Options contract** (`domain/options.py`, `domain/enums.py`)
+  - `OptimizationOptions` has `objective_mode`, `search_effort`, `time_limit_seconds` (empty means the server default), `travel_time_factor` (1.00–2.00, two decimals), `extra_truck_cost_km` (0–100,000), and `balance_strength`.
+  - Unknown keys are rejected.
+  - `PlanningRequest` carries the options; a payload without them gets the Version 1.0 defaults.
+- **Validation:** options are parsed with field-level errors in section `optimization_options`. A time limit above `SOLVER_MAX_TIME_LIMIT_SECONDS` (new, default 120) is an error, so JSON cannot exceed the server's ceiling.
+- **Objective and search** (`optimization/objective.py`, new; all weights live here)
+  - Fewest trucks: a fixed cost per truck-shift of `extra_truck_cost_km` × 1,000.
+  - Least travel: no fixed cost.
+  - Balanced workload: no fixed cost, plus a span cost on the `RouteDuration` dimension, which is working time.
+  - The balance presets were tuned on V11-E and frozen: Light 5, Medium 10, Strong 20. The first try (5/20/100) was not monotonic in working time.
+  - Thorough search adds guided local search.
+- **Solver** (`optimization/solver.py`)
+  - Per-solve settings; no settings means exactly Version 1.0's.
+  - Distances, durations, and load changes are registered as precomputed matrices up to 1,000 nodes, with Python callbacks above that.
+  - Each route records its total duration; each plan records its objective value and metrics.
+- **Metrics** (`optimization/metrics.py`, new): truck-shifts used and available; longest and shortest route (elapsed, waiting included); longest working time; average load and time utilisation.
+- **Validator:** re-checks a route's total duration.
+- **Planning service** (`application/planning_service.py`)
+  - It maps options to settings and applies the travel-time buffer once, to a copy of the matrix shared by the solver, pre-checks, and validator. Each leg is rounded half up; the stored matrix is untouched.
+  - Plan IDs are `PLAN-<UTC timestamp>-<8 hex>`.
+  - A plan records `created_at`, the options with the time limit filled in, and the matrix identity, including the factor.
+- **Off the event loop, one at a time.** A worker thread did not help: OR-Tools keeps Python's interpreter lock for the whole search (measured: one main-thread tick during a 3 s solve).
+  - Solves now run in one long-lived worker process (`SOLVER_IN_SUBPROCESS`, default on), which also serialises them. The API waits for it in a thread.
+  - The worker exits when the backend exits, even when the backend is killed (found in the manual run; see below).
+- **History:** the plan repository keeps `PLAN_HISTORY_LIMIT` (default 20) plans per scenario. `GET /api/v1/scenarios/{id}/plans` lists them newest first, with settings and headline figures.
+- **Config:** `GET /config` reports `solver_max_time_limit_seconds` and `plan_history_limit`. `.env.example` documents the three new settings.
+- **Frontend**
+  - `state/optimization.py` (new): stores only values that differ from the defaults, so an all-default scenario keeps the Version 1.0 JSON. It also provides the one-line summary, plan figures, and the solve timeout.
+  - The Optimize page has a settings form: objective and search effort, each with an explanation; a time-limit slider bounded by the server; a 0–100 % buffer; and, under Advanced, the extra-truck cost and balance strength. It states that no setting relaxes a hard rule, and the expected wait for a thorough search.
+  - The solve shows a spinner, and the client waits 2 × limit + 20 s.
+  - Results show truck-shifts used, distance, longest route, and longest working time, with "Made with: …".
+  - Review links optimization issues to the Optimize page.
+- **Fixture V11-E:** Scenario A's six POs on one day with three trucks.
+- **Docs:** plan status and as-built notes (§6.3, §9.7, §10.1–10.3, §10.6, §10.8, §14, §15, §21); README "Current status"; `sample_data/v1_1/README.md`; `.env.example`.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| `python -m ruff format --check .` | PASS | |
+| `python -m ruff check .` | PASS | |
+| `python -m mypy backend frontend` | PASS | No issues in 160 source files. |
+| `python -m pytest -q` | PASS | **690 passed** (627 before, 63 new). Same 3 OR-Tools/SWIG warnings. No solver worker process left after the run. |
+| Characterization tests A–F | PASS | Unchanged through the planning service, the worker process, and precomputed matrices. |
+| `python scripts/validate_m0.py` | PASS | 672 checks. |
+| `python scripts/validate_m9_release.py` | PASS | |
+| `python scripts/review_m2_payloads.py` | PASS | |
+| `python scripts/smoke_m1.py` | PASS | `DATABASE_PATH` set to a scratch file. |
+| `python -m pip check` | PASS | |
+| Real database untouched | PASS | Modification time unchanged across the runs. It is newer than at M4 because the app was used in between, not because of the checks. |
+
+Plan M5 checks and their tests:
+
+| Plan check | Tests |
+|---|---|
+| No options gives Version 1.0 results | `test_v1_0_characterization.py` (API, A–F); `test_default_options_reproduce_the_version_1_0_solve`; `test_precomputed_matrices_and_callbacks_give_identical_plans` (A, C–F) |
+| Out-of-range values rejected with field-level errors; server maximum cannot be exceeded through JSON | `test_out_of_range_options_are_field_level_errors` (8 cases, including a misspelt key), `test_json_cannot_exceed_the_server_time_limit_ceiling`, `test_the_server_default_must_not_exceed_its_maximum`, `test_settings_are_bounded` |
+| V11-E: fewest trucks uses the fewest truck-shifts; balanced uses more with a shorter longest route; least travel no further than the other two | `test_fixture_v11_e_objective_modes_differ_as_documented`, `test_balance_presets_are_frozen`, `test_objective_chosen_on_the_page_changes_the_plan` (real app and backend) |
+| Every mode and effort passes the independent validator on every fixture | `test_every_mode_and_effort_passes_the_independent_validator`: 3 modes × 2 efforts × 10 fixtures |
+| Buffer: solver, pre-check, and validator agree; a deadline that holds at 1.0 and fails at 1.5 is diagnosed; no provider call on change | `test_buffer_deadline_holds_at_1_0_and_is_diagnosed_at_1_5` (late by exactly 7:30), `test_solver_precheck_and_validator_see_the_same_buffered_times`, `test_settings_are_stored_minimally_and_make_only_the_plan_stale` (no provider call; travel times stay current) |
+| Thorough search within the time limit plus tolerance, no worse than standard | `test_thorough_search_respects_the_time_limit_and_is_no_worse` (each mode, objective value compared) |
+| Two solves give two retrievable plans; health responds during a solve | `test_two_solves_give_two_retrievable_plans_and_history`, `test_history_keeps_only_the_newest_plans_per_scenario`, `test_health_responds_while_a_solve_is_running` |
+| Timeout still told apart from infeasibility | existing `test_solver_timeout_status_is_not_reported_as_proven_infeasible`; `test_thorough_search_on_a_shortage_is_still_a_partial_plan_not_a_timeout` |
+
+Also tested:
+
+- Unique plan IDs, 30 characters whatever the scenario ID.
+- Metrics and route durations; plans stored by Version 1.0 stay readable.
+- Time-limit default and cap; the client's solve timeout (MockTransport).
+- The Optimize page's bounds, summary, and Review link.
+- The worker exits when its backend is killed.
+
+### Manual checks
+
+- **API on a real uvicorn server** (scratch database, offline provider, Windows):
+  - A thorough solve of Scenario A with a 3 s limit took 4.8 s, about 1.8 s of it starting the worker on first use.
+  - `/health` answered in about 0.3 s throughout.
+- **Browser run on the feasible sample (Scenario A).** All four plans appear in `GET /scenarios/A/plans`, newest first. The backend made no travel-time or Google calls.
+
+  | Settings | Truck-shifts | Distance | Longest route | Longest working time |
+  |---|---|---|---|---|
+  | Fewest trucks (default) | 1 of 6 | 216.0 km | 7:33 | 7:18 |
+  | Least travel | 1 of 6 | 216.0 km | 7:33 | 7:18 |
+  | Balanced workload, medium | 3 of 6 | 254.0 km | 4:07 | 3:23 |
+  | Fewest trucks, thorough, 20 % buffer | 1 of 6 | 216.0 km | 8:21 | 8:06 |
+
+  - The explanations match what happened. Least travel equals fewest trucks here because one chained route is also the shortest. Balanced spreads the work for 38 km more.
+  - The buffer lengthened every leg without recalculating travel times. After each saved change, the sidebar showed travel times current and the plan stale.
+- **Found and fixed:** after the backend was stopped by killing it, its solver worker kept running, idle. `run_app.ps1` stops the backend this way, so every run would have left a stray Python process.
+  - Reproduced: a worker outlived its parent.
+  - Fix: the worker watches its parent process and exits with it.
+  - Regression test: `test_the_solver_worker_exits_when_the_backend_is_killed`.
+  - The leftover workers from the manual run were removed.
+
+### Known issues
+
+- OR-Tools/SWIG deprecation warnings remain.
+- The M3 live-key manual check is still outstanding.
+- The first solve after a backend start takes about 2 s longer while the worker starts.
+- Balanced workload evens out working time, meaning driving plus service. The elapsed day can stay longer where a route waits for a ready time.
+- Plan comparison on the Results page, and the buffer printed on exports, come with M6.
+- `.env` was not read or changed.
+
+### Gate status
+
+- **V1.1-M5 COMPLETE.** Each option has deterministic regression evidence: V11-E figures, frozen presets, the buffer deadline case, and thorough-versus-standard objective values.
+- None weakens a hard constraint: every mode and effort passes the independent validator on every fixture.
+- Clean working tree: PASS. The milestone was committed on branch `v1.1` at the user's request (2026-11-21).
+
+### Next action
+
+- Run the M3 live-key manual check when approved.
+- Start V1.1-M6 (results, plan history and comparison, run sheets, scenario management, drafts).

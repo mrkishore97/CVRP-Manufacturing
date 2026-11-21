@@ -5,14 +5,17 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Body, status
+from starlette.concurrency import run_in_threadpool
 
 from backend.app.api.contracts import (
     ApiErrorDetail,
     ApiRequestError,
     JsonObject,
     PlanExportResponse,
+    PlanHistoryResponse,
     PlanResponse,
     PlanSolveResponse,
+    PlanSummaryPayload,
     PlanValidationResponse,
 )
 from backend.app.api.dependencies import (
@@ -137,6 +140,7 @@ async def validate_plan_payload(
         validation=validate_planning_payload(
             payload,
             geocode_max_age_seconds=settings.geocode_cache_ttl_seconds,
+            max_time_limit_seconds=settings.solver_max_time_limit_seconds,
         ),
     )
 
@@ -153,11 +157,17 @@ async def solve_plan(
     plan_repository: PlanRepositoryDependency,
     payload: JsonObject = PAYLOAD_BODY,
 ) -> PlanSolveResponse:
-    """Validate, solve, persist, and return a plan for a planning payload."""
+    """Validate, solve, persist, and return a plan for a planning payload.
+
+    The solve runs in the backend's solver worker process, one at a time, and this
+    request waits for it in a thread, so health checks and other requests stay
+    responsive while it searches (finding F17).
+    """
     _enforce_planning_payload_limits(payload, settings)
     validation = validate_planning_payload(
         payload,
         geocode_max_age_seconds=settings.geocode_cache_ttl_seconds,
+        max_time_limit_seconds=settings.solver_max_time_limit_seconds,
     )
     _validate_payload_or_raise(payload, validation)
     if validation.normalized_request is None:
@@ -166,9 +176,34 @@ async def solve_plan(
             code="PLANNING_VALIDATION_FAILED",
             message="Planning payload did not produce a normalized request.",
         )
-    plan = planning_service.optimize(validation.normalized_request)
-    plan_repository.save(validation.normalized_request.scenario_id, plan)
+    plan = await run_in_threadpool(planning_service.optimize, validation.normalized_request)
+    plan_repository.save(
+        validation.normalized_request.scenario_id,
+        plan,
+        history_limit=settings.plan_history_limit,
+    )
     return PlanSolveResponse(request_id=request_id, validation=validation, plan=plan)
+
+
+@router.get(
+    "/scenarios/{scenario_id}/plans",
+    response_model=PlanHistoryResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def plan_history(
+    scenario_id: str,
+    request_id: RequestIdDependency,
+    plan_repository: PlanRepositoryDependency,
+) -> PlanHistoryResponse:
+    """The scenario's stored plans, newest first; empty when none were solved."""
+    return PlanHistoryResponse(
+        request_id=request_id,
+        scenario_id=scenario_id,
+        plans=tuple(
+            PlanSummaryPayload.from_plan(stored.plan, stored.created_at)
+            for stored in plan_repository.list_for_scenario(scenario_id)
+        ),
+    )
 
 
 @router.get(

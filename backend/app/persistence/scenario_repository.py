@@ -215,7 +215,10 @@ class SQLitePlanRepository:
                 """
             )
 
-    def save(self, scenario_id: str, plan: PlanResult) -> PersistedPlan:
+    def save(
+        self, scenario_id: str, plan: PlanResult, *, history_limit: int | None = None
+    ) -> PersistedPlan:
+        """Store a plan; with ``history_limit``, keep only that many newest per scenario."""
         now = _utc_now()
         with self._database.connect() as connection:
             connection.execute(
@@ -235,11 +238,47 @@ class SQLitePlanRepository:
                     now.isoformat(),
                 ),
             )
+            if history_limit is not None:
+                connection.execute(
+                    """
+                    DELETE FROM plans
+                    WHERE scenario_id = ?
+                      AND plan_id NOT IN (
+                        SELECT plan_id FROM plans
+                        WHERE scenario_id = ?
+                        ORDER BY created_at DESC, rowid DESC
+                        LIMIT ?
+                      )
+                    """,
+                    (scenario_id, scenario_id, history_limit),
+                )
         return PersistedPlan(
             plan_id=plan.plan_id,
             scenario_id=scenario_id,
             plan=plan,
             created_at=now,
+        )
+
+    def list_for_scenario(self, scenario_id: str) -> tuple[PersistedPlan, ...]:
+        """The scenario's stored plans, newest first."""
+        with self._database.connect() as connection:
+            found = connection.execute(
+                """
+                SELECT plan_id, scenario_id, payload_json, created_at
+                FROM plans
+                WHERE scenario_id = ?
+                ORDER BY created_at DESC, rowid DESC
+                """,
+                (scenario_id,),
+            ).fetchall()
+        return tuple(
+            PersistedPlan(
+                plan_id=row[0],
+                scenario_id=row[1],
+                plan=PlanResult.model_validate_json(row[2]),
+                created_at=_parse_datetime(row[3]),
+            )
+            for row in found
         )
 
     def get(self, plan_id: str) -> PersistedPlan | None:

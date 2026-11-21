@@ -233,7 +233,10 @@ def _validate_route(
     if route.peak_load != peak_load:
         issues.append(f"route {route_key} peak load is inconsistent")
     allowance = _route_time_allowance_seconds(vehicle, shift)
-    if _seconds_between(shift.start, stops[-1].arrival_at) > allowance:
+    elapsed = _seconds_between(shift.start, stops[-1].arrival_at)
+    if route.total_duration_seconds is not None and route.total_duration_seconds != elapsed:
+        issues.append(f"route {route_key} total duration is inconsistent")
+    if elapsed > allowance:
         issues.append(f"route {route_key} lasts longer than its maximum route duration")
     distance_limit = vehicle.maximum_route_distance_meters
     if distance_limit is not None and total_distance > distance_limit:

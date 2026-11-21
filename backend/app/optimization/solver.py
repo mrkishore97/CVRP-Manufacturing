@@ -9,7 +9,7 @@ from decimal import Decimal
 from time import perf_counter
 from typing import Final
 
-from ortools.constraint_solver import pywrapcp, routing_enums_pb2
+from ortools.constraint_solver import pywrapcp
 
 from backend.app.domain.enums import PlanStatus, StopKind
 from backend.app.domain.models import (
@@ -20,6 +20,8 @@ from backend.app.domain.models import (
 )
 from backend.app.domain.options import priority_weight
 from backend.app.domain.results import PlanResult, PlanRoute, PlanStop, TaskDiagnostic
+from backend.app.optimization.metrics import plan_metrics
+from backend.app.optimization.objective import SolveSettings, search_parameters
 from backend.app.optimization.task_expander import ExpandedTask, ExpandedTaskNode, expand_tasks
 from backend.app.optimization.validator import validate_plan_result
 
@@ -38,10 +40,16 @@ class SolverConfig:
     dropped_task_penalty: int = 100_000_000
     """Cost of leaving out one Routine task's pickup or delivery; higher priorities
     multiply it by their weight (1, 2, 4, 8, 16)."""
+    transit_matrix_max_nodes: int = 1_000
+    """Up to this many routing nodes, travel and load figures are handed to OR-Tools as
+    precomputed matrices, so a thorough search spends its time searching. Larger models
+    use Python callbacks, which give the same values with less memory."""
 
     def __post_init__(self) -> None:
         if self.time_limit_seconds <= 0:
             raise ValueError("time_limit_seconds must be positive")
+        if self.transit_matrix_max_nodes < 0:
+            raise ValueError("transit_matrix_max_nodes must be non-negative")
         if self.vehicle_fixed_cost < 0:
             raise ValueError("vehicle_fixed_cost must be non-negative")
         if self.dropped_task_penalty <= 0:
@@ -84,6 +92,7 @@ class _SolveAttempt:
     routing: pywrapcp.RoutingModel
     elapsed_seconds: float
     timed_out: bool
+    objective_value: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,8 +220,24 @@ class OrToolsCapacitySolver:
     def __init__(self, config: SolverConfig | None = None) -> None:
         self._config = config or SolverConfig()
 
-    def solve(self, request: PlanningRequest) -> PlanResult:
-        """Return a validated route plan or a controlled infeasibility/diagnostic result."""
+    @property
+    def config(self) -> SolverConfig:
+        return self._config
+
+    def default_settings(self) -> SolveSettings:
+        """Version 1.0's objective and search, with this solver's time limit."""
+        return SolveSettings(
+            time_limit_seconds=self._config.time_limit_seconds,
+            vehicle_fixed_cost=self._config.vehicle_fixed_cost,
+        )
+
+    def solve(self, request: PlanningRequest, settings: SolveSettings | None = None) -> PlanResult:
+        """Return a validated route plan or a controlled infeasibility/diagnostic result.
+
+        ``settings`` choose the objective and the search; without them the solve is
+        exactly Version 1.0's.
+        """
+        settings = settings or self.default_settings()
         started = perf_counter()
         static_diagnostics = self._static_precheck(request)
         if static_diagnostics:
@@ -251,6 +276,7 @@ class OrToolsCapacitySolver:
             data,
             allow_dropping=False,
             started_at=started,
+            settings=settings,
         )
         if strict_attempt.assignment is None:
             if strict_attempt.timed_out:
@@ -268,7 +294,9 @@ class OrToolsCapacitySolver:
                     ),
                     elapsed_seconds=strict_attempt.elapsed_seconds,
                 )
-            return self._solve_relaxed_diagnostic(request, request.routing_matrix, data, started)
+            return self._solve_relaxed_diagnostic(
+                request, request.routing_matrix, data, started, settings
+            )
 
         result = self._extract_solution(
             request,
@@ -279,6 +307,7 @@ class OrToolsCapacitySolver:
             strict_attempt.assignment,
             status=PlanStatus.FEASIBLE,
             elapsed_seconds=strict_attempt.elapsed_seconds,
+            objective_value=strict_attempt.objective_value,
         )
         return self._validate_or_internal_error(request, result)
 
@@ -288,6 +317,7 @@ class OrToolsCapacitySolver:
         matrix: RoutingMatrix,
         data: _ProblemData,
         started: float,
+        settings: SolveSettings,
     ) -> PlanResult:
         relaxed_attempt = self._solve_model(
             request,
@@ -295,6 +325,7 @@ class OrToolsCapacitySolver:
             data,
             allow_dropping=True,
             started_at=started,
+            settings=settings,
         )
         if relaxed_attempt.assignment is None:
             status = _routing_failure_status(timed_out=relaxed_attempt.timed_out)
@@ -329,6 +360,7 @@ class OrToolsCapacitySolver:
             relaxed_attempt.assignment,
             status=PlanStatus.PARTIALLY_FEASIBLE,
             elapsed_seconds=relaxed_attempt.elapsed_seconds,
+            objective_value=relaxed_attempt.objective_value,
         )
         if len(result.scheduled_task_ids) == len(request.tasks):
             result = result.model_copy(update={"status": PlanStatus.FEASIBLE, "diagnostics": ()})
@@ -621,7 +653,85 @@ class OrToolsCapacitySolver:
         manager: pywrapcp.RoutingIndexManager,
         matrix: RoutingMatrix,
         data: _ProblemData,
+        settings: SolveSettings,
     ) -> None:
+        (
+            distance_callback_index,
+            duration_callback_index,
+            demand_callback_index,
+            order_callback_index,
+        ) = self._register_transits(routing, manager, matrix, data)
+
+        routing.SetArcCostEvaluatorOfAllVehicles(distance_callback_index)
+        if settings.vehicle_fixed_cost:
+            for vehicle_index in range(len(data.active_shifts)):
+                routing.SetFixedCostOfVehicle(settings.vehicle_fixed_cost, vehicle_index)
+
+        routing.AddDimensionWithVehicleCapacity(
+            demand_callback_index,
+            0,
+            [_load_units(vehicle.capacity) for vehicle in data.vehicles_by_shift],
+            True,
+            "Capacity",
+        )
+        routing.AddDimensionWithVehicleCapacity(
+            duration_callback_index,
+            0,
+            [
+                _route_duration_limit_seconds(vehicle, shift)
+                for vehicle, shift in zip(data.vehicles_by_shift, data.active_shifts, strict=True)
+            ],
+            True,
+            "RouteDuration",
+        )
+        if settings.span_cost_coefficient:
+            # BALANCE_WORKLOAD (plan §10.2): a cost on the longest route's working time.
+            routing.GetDimensionOrDie("RouteDuration").SetGlobalSpanCostCoefficient(
+                settings.span_cost_coefficient
+            )
+        self._add_limits_and_time_windows(
+            routing,
+            manager,
+            data,
+            distance_callback_index=distance_callback_index,
+            duration_callback_index=duration_callback_index,
+            order_callback_index=order_callback_index,
+        )
+
+    def _register_transits(
+        self,
+        routing: pywrapcp.RoutingModel,
+        manager: pywrapcp.RoutingIndexManager,
+        matrix: RoutingMatrix,
+        data: _ProblemData,
+    ) -> tuple[int, int, int, int]:
+        """Distance, duration (service plus travel), load change, and visit order.
+
+        Precomputed node matrices (plan §10.3) and Python callbacks return the same
+        values; matrices only make each lookup cheaper.
+        """
+        node_count = len(data.nodes)
+        if node_count <= self._config.transit_matrix_max_nodes:
+            positions = [data.location_index[node.location_id] for node in data.nodes]
+            distances = [
+                [matrix.distance_meters[origin][destination] for destination in positions]
+                for origin in positions
+            ]
+            durations = [
+                [
+                    data.nodes[from_node].service_seconds
+                    + matrix.duration_seconds[origin][destination]
+                    for destination in positions
+                ]
+                for from_node, origin in enumerate(positions)
+            ]
+            return (
+                routing.RegisterTransitMatrix(distances),
+                routing.RegisterTransitMatrix(durations),
+                routing.RegisterUnaryTransitVector([node.load_delta_units for node in data.nodes]),
+                routing.RegisterUnaryTransitVector([1] * node_count),
+            )
+
         def distance_callback(from_index: int, to_index: int) -> int:
             return _travel_distance(
                 data,
@@ -647,32 +757,23 @@ class OrToolsCapacitySolver:
         def order_callback(_from_index: int, _to_index: int) -> int:
             return 1
 
-        distance_callback_index = routing.RegisterTransitCallback(distance_callback)
-        duration_callback_index = routing.RegisterTransitCallback(duration_callback)
-        demand_callback_index = routing.RegisterUnaryTransitCallback(demand_callback)
-        order_callback_index = routing.RegisterTransitCallback(order_callback)
-
-        routing.SetArcCostEvaluatorOfAllVehicles(distance_callback_index)
-        for vehicle_index in range(len(data.active_shifts)):
-            routing.SetFixedCostOfVehicle(self._config.vehicle_fixed_cost, vehicle_index)
-
-        routing.AddDimensionWithVehicleCapacity(
-            demand_callback_index,
-            0,
-            [_load_units(vehicle.capacity) for vehicle in data.vehicles_by_shift],
-            True,
-            "Capacity",
+        return (
+            routing.RegisterTransitCallback(distance_callback),
+            routing.RegisterTransitCallback(duration_callback),
+            routing.RegisterUnaryTransitCallback(demand_callback),
+            routing.RegisterTransitCallback(order_callback),
         )
-        routing.AddDimensionWithVehicleCapacity(
-            duration_callback_index,
-            0,
-            [
-                _route_duration_limit_seconds(vehicle, shift)
-                for vehicle, shift in zip(data.vehicles_by_shift, data.active_shifts, strict=True)
-            ],
-            True,
-            "RouteDuration",
-        )
+
+    def _add_limits_and_time_windows(
+        self,
+        routing: pywrapcp.RoutingModel,
+        manager: pywrapcp.RoutingIndexManager,
+        data: _ProblemData,
+        *,
+        distance_callback_index: int,
+        duration_callback_index: int,
+        order_callback_index: int,
+    ) -> None:
         if any(
             vehicle.maximum_route_distance_meters is not None for vehicle in data.vehicles_by_shift
         ):
@@ -774,6 +875,7 @@ class OrToolsCapacitySolver:
         *,
         allow_dropping: bool,
         started_at: float,
+        settings: SolveSettings,
     ) -> _SolveAttempt:
         manager = pywrapcp.RoutingIndexManager(
             len(data.nodes),
@@ -782,7 +884,7 @@ class OrToolsCapacitySolver:
             list(data.ends),
         )
         routing = pywrapcp.RoutingModel(manager)
-        self._add_objective_and_dimensions(routing, manager, matrix, data)
+        self._add_objective_and_dimensions(routing, manager, matrix, data, settings)
         self._add_pair_and_vehicle_constraints(
             routing,
             manager,
@@ -790,20 +892,14 @@ class OrToolsCapacitySolver:
             allow_dropping=allow_dropping,
         )
 
-        search_parameters = pywrapcp.DefaultRoutingSearchParameters()
-        search_parameters.first_solution_strategy = (
-            routing_enums_pb2.FirstSolutionStrategy.PARALLEL_CHEAPEST_INSERTION
-        )
-        search_parameters.time_limit.FromSeconds(self._config.time_limit_seconds)
-        search_parameters.log_search = False
-
-        assignment = routing.SolveWithParameters(search_parameters)
+        assignment = routing.SolveWithParameters(search_parameters(settings))
         return _SolveAttempt(
             assignment=assignment,
             manager=manager,
             routing=routing,
             elapsed_seconds=perf_counter() - started_at,
             timed_out=routing.status() == _ROUTING_FAIL_TIMEOUT,
+            objective_value=int(assignment.ObjectiveValue()) if assignment is not None else None,
         )
 
     def _extract_solution(
@@ -817,6 +913,7 @@ class OrToolsCapacitySolver:
         *,
         status: PlanStatus,
         elapsed_seconds: float,
+        objective_value: int | None = None,
     ) -> PlanResult:
         routes: list[PlanRoute] = []
         for vehicle_index, shift in enumerate(data.active_shifts):
@@ -873,6 +970,7 @@ class OrToolsCapacitySolver:
             total_service_seconds=sum(route.service_seconds for route in routes),
             total_waiting_seconds=sum(route.waiting_seconds for route in routes),
             solver_elapsed_seconds=elapsed_seconds,
+            metrics=plan_metrics(request, routes, objective_value=objective_value),
         )
 
     def _extract_vehicle_route(
@@ -969,6 +1067,7 @@ class OrToolsCapacitySolver:
             service_seconds=service_seconds,
             waiting_seconds=waiting_seconds,
             peak_load=_load_decimal(peak_load_units),
+            total_duration_seconds=int((stops[-1].arrival_at - shift.start).total_seconds()),
         )
 
     def _failure_result(
@@ -991,4 +1090,5 @@ class OrToolsCapacitySolver:
             unscheduled_task_ids=unscheduled_task_ids,
             solver_elapsed_seconds=elapsed_seconds,
             warnings=tuple(warnings),
+            metrics=plan_metrics(request, ()),
         )

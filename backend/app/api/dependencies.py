@@ -148,7 +148,10 @@ def get_planning_service(request: Request, settings: SettingsDependency) -> Plan
     if service is not None:
         return cast(PlanningService, service)
     return PlanningService(
-        OrToolsCapacitySolver(SolverConfig(time_limit_seconds=settings.solver_time_limit_seconds))
+        OrToolsCapacitySolver(SolverConfig(time_limit_seconds=settings.solver_time_limit_seconds)),
+        default_time_limit_seconds=settings.solver_time_limit_seconds,
+        max_time_limit_seconds=settings.solver_max_time_limit_seconds,
+        in_worker_process=settings.solver_in_subprocess,
     )
 
 

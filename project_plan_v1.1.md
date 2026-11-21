@@ -2,7 +2,7 @@
 
 **Plan revision:** 2 — rewritten from scratch; replaces the obsolete draft dated 2026-07-16  
 **Date:** 2026-11-16  
-**Status:** Decisions D1–D5 settled on 2026-11-16; D6 settled on 2026-11-18 (option a). V1.1-M0 (Build 014) to V1.1-M4 (Build 018) complete on branch `v1.1`; the M3 live-key manual check is still to run  
+**Status:** Decisions D1–D5 settled on 2026-11-16; D6 settled on 2026-11-18 (option a). V1.1-M0 (Build 014) to V1.1-M5 (Build 019) complete on branch `v1.1`; the M3 live-key manual check is still to run  
 **Baseline:** tag `v1.0.0` (`2d93b2d`) — 143 automated tests passing when re-run on 2026-11-16  
 **Related records:** `project_plan.md` (Version 1.0 plan, stays unchanged), `build_log.md`
 
@@ -198,15 +198,15 @@ backend/app/
 | `POST /api/v1/matrices/estimate` | New | Element count, request count, and whether the cache already has it — before any billable call. M3 adds `cache_enabled`: false for Google, whose matrices are not stored (D6) |
 | `POST /api/v1/matrices/compute` | Unchanged contract | Frontend now also sends routing options. M3 adds `cache_enabled`; a Google matrix is never cached (D6) |
 | `POST /api/v1/plans/validate` | Additive | Accepts `optimization_options` / `routing_options`; new warnings (§9.6). M4: every issue carries `section` and `item_id`; the details of a rejected payload carry `severity`, `section`, and `item_id` |
-| `POST /api/v1/plans/solve` | Additive | Honours options; unique plan ID; runs off the event loop |
+| `POST /api/v1/plans/solve` | Additive | Honours options; unique plan ID; runs off the event loop. M5: solves run in a separate worker process, because OR-Tools holds Python's interpreter lock for the whole search |
 | `GET /api/v1/scenarios` | New (M3) | List saved scenarios (ID, name, updated, counts) |
 | `POST /api/v1/scenarios` | Additive | `?if_exists=error` returns 409 instead of overwriting; default stays "replace" (M6). Since M3, POST and PUT drop an embedded Google matrix and report `routing_matrix_dropped` (D6) |
 | `DELETE /api/v1/scenarios/{id}` | New | Delete a scenario and its plans |
 | `PUT/GET/DELETE /api/v1/scenarios/{id}/draft` | New | Refresh-safe working copy (§11.3) |
-| `GET /api/v1/scenarios/{id}/plans` | New | Plan history for comparison |
+| `GET /api/v1/scenarios/{id}/plans` | New (M5) | Plan history for comparison: the stored plans, newest first, with their settings and headline figures |
 | `POST /api/v1/imports/tasks/preview`, `/imports/locations/preview` | New | One import contract, owned by the backend. Locations in M3, tasks in M4 |
 | `GET /api/v1/imports/templates/{kind}` | New (M4) | Columns, aliases, and an example row for the `tasks` and `locations` templates |
-| `GET /api/v1/config` | New | Non-secret settings the UI needs: default timezone, whether a Google key is configured, limits, region code |
+| `GET /api/v1/config` | New | Non-secret settings the UI needs: default timezone, whether a Google key is configured, limits, region code. M5 adds the time-limit ceiling and the history limit |
 | `GET /api/v1/health` | Fix | Reports the real version |
 
 ## 7. One scenario, two views: forms and JSON
@@ -538,6 +538,13 @@ As built in M4:
 
 A pre-flight checklist shows inputs valid, addresses resolved, travel times current. The page states that no setting relaxes a hard constraint.
 
+As built in M5:
+
+- **One form.** All settings sit in a single form with a one-line summary above it. Only values that differ from the defaults are written to `optimization_options`, so an all-default scenario keeps the Version 1.0 JSON.
+- **Effect of a change.** Changing a setting makes the plan stale but not the travel times; no setting calls Google.
+- **Thorough search** shows how long it will take (the limit, and twice that when not everything fits). The client waits 2 × limit + 20 s.
+- **Results** show truck-shifts used of available, total distance, longest route, and longest working time, with a "Made with: …" line naming the settings. Plan comparison comes in M6.
+
 ### 9.8 Results and Advanced JSON
 
 See §11.1 and §7.3.
@@ -559,6 +566,12 @@ See §11.1 and §7.3.
 
 Every field is optional. The defaults are the Version 1.0 constants, so a request without the object behaves exactly as today — locked by a regression test over fixtures A–F. The backend bounds every value; sending JSON directly cannot exceed server limits (`SOLVER_MAX_TIME_LIMIT_SECONDS`, default 120).
 
+As built in M5:
+
+- **Time limit.** `time_limit_seconds` left empty means the server default (`SOLVER_TIME_LIMIT_SECONDS`).
+- **Errors.** Unknown keys, out-of-range values, more than two decimals on `travel_time_factor`, and a time limit above the server's ceiling are all field-level errors in section `optimization_options`.
+- **What a plan records.** The options it used, with the time limit filled in.
+
 ### 10.2 Objective modes
 
 | Mode | Implementation | Effect |
@@ -569,11 +582,22 @@ Every field is optional. The defaults are the Version 1.0 constants, so a reques
 
 "Cost of an extra truck" is expressed in kilometres because the solver's cost unit is already metres: Version 1.0's opaque `1,000,000` is "a truck is worth dispatching only if it saves 1,000 km". Balance strength is offered as three presets rather than a raw weight; preset values are tuned in M5 against fixture V11-E and then frozen with regression tests. All weights live in `optimization/objective.py`.
 
+As built in M5:
+
+- **What is balanced.** The span cost is on working time, meaning driving plus service with waiting excluded. A per-route time including waiting would need a dimension tied to absolute times, which differ across days.
+- **Presets.** Tuned on V11-E and frozen: Light 5, Medium 10, Strong 20 (metres per second of the longest working time). With standard search the longest working time is 4.1, 3.4, and 3.1 hours, against 7.3 for fewest trucks, for 229, 254, and 288 km against 216 km.
+- **Two figures per plan.** Plans report the longest working time and the longest elapsed route, waiting included. The elapsed figure does not fall strictly with strength.
+
 ### 10.3 Search effort
 
 `STANDARD` keeps today's search. `THOROUGH` enables guided local search, which continues improving until the time limit — this is what gives the time-limit control a real effect (F6). Because a time-bounded search can differ between machines, tests for `THOROUGH` assert properties (valid plan, cost no worse than `STANDARD`) rather than exact routes.
 
 Performance: travel-time and distance lookups are precomputed and registered as matrices (`RegisterTransitMatrix`, `RegisterUnaryTransitVector`) instead of Python callbacks, so a thorough search spends its time searching. Gate: identical results on all existing fixtures.
+
+As built in M5:
+
+- **Matrices or callbacks.** Matrices are used up to 1,000 routing nodes; larger models fall back to callbacks to save memory. A test solves fixtures A–F both ways and gets identical plans.
+- **Thorough search** is no worse than standard on V11-E in every mode, and returns within the limit plus 1.5 s.
 
 ### 10.4 Priority
 
@@ -604,6 +628,11 @@ As built in M4:
 
 Google's driving times are for cars. `travel_time_factor` (1.00–2.00) scales matrix durations before solving. It is applied once, in the planning service, to a copy of the matrix that the solver, the pre-checks, and the independent validator all use — so they cannot disagree. The cached Google matrix is untouched, changing the buffer costs no Google call, and the factor is recorded on the plan and printed on exports.
 
+As built in M5:
+
+- **Rounding.** Each leg is rounded half up to whole seconds.
+- **Where the factor is recorded.** In the plan's options and its matrix identity. Printing it on exports comes with the M6 exports.
+
 ### 10.7 Independent validator
 
 Added re-checks: vehicle tags satisfy task requirements; route duration within vehicle and shift limits; route distance within the vehicle limit. The existing corrupted-plan tests gain one case per new check.
@@ -619,6 +648,20 @@ As built in M4:
 - The last `PLAN_HISTORY_LIMIT` (default 20) plans per scenario are kept.
 - `PlanResult` gains optional fields: `created_at`, effective options, matrix identity (source, preference, created), and metrics (truck-shifts used, longest and shortest route duration, load and time utilisation). Routes gain total duration.
 - Solves run off the API event loop, one at a time, so health checks and other requests stay responsive.
+
+As built in M5:
+
+- **Why a worker process.** OR-Tools keeps Python's interpreter lock for the whole search, so a worker thread still froze the API (measured: one main-thread tick in 3 s). The backend therefore solves in one long-lived worker process (`SOLVER_IN_SUBPROCESS`, default on). That also makes solves run one at a time.
+- **Worker lifetime.** The worker exits when the backend exits, even when the backend is killed.
+- **First solve.** It pays about 2 s to start the worker.
+- **Plan IDs** look like `PLAN-20261121T211706Z-846fd72f`.
+- **History.** `PLAN_HISTORY_LIMIT` (default 20) plans are kept per scenario and listed by `GET /scenarios/{id}/plans`.
+- **Metrics:**
+  - truck-shifts used and available;
+  - longest and shortest route (elapsed);
+  - longest working time;
+  - average load and time utilisation;
+  - the solver's objective value.
 
 ### 10.9 Parameter inventory
 
@@ -733,7 +776,7 @@ Eight milestones. The two must-have outcomes land in M3 (address-only) and M4 (f
 | V1.1-M2 | Frontend foundation; JSON workflow on the new state model | M | Complete |
 | V1.1-M3 | Scenario, plant, locations, travel times — address-only end to end | M | Complete (live-key manual check outstanding) |
 | V1.1-M4 | Fleet, shifts, tasks, import, review — forms complete | L | Complete |
-| V1.1-M5 | Optimization options and Optimize page | M | Pending |
+| V1.1-M5 | Optimization options and Optimize page | M | Complete |
 | V1.1-M6 | Results, plan history, scenario management, exports | M | Pending |
 | V1.1-M7 | Hardening, documentation, release | S | Pending |
 
@@ -859,6 +902,13 @@ Status (Build 018): automated checks pass.
 
 **Gate:** each option has deterministic regression evidence and none weakens a hard constraint.
 
+Status (Build 019): automated checks pass. Manual run in the browser on Scenario A:
+
+- **Fewest trucks:** 1 truck, 216 km, longest route 7:33.
+- **Least travel:** the same plan.
+- **Balanced (medium):** 3 trucks, 254 km, longest route 4:07.
+- **Thorough search with a 20 % buffer:** 1 truck, longest route 8:21.
+
 ### V1.1-M6 — Results, plan history, scenario management
 
 **Deliverables:** results page in planner language; plan comparison; run sheets and updated exports; scenario list, save-as, duplicate, delete, overwrite guard; drafts and restore; map behaviour per D1; matrix persistence per D6 (drafts store only the matrix identity; the rest of D6 landed in M3); Google attribution wherever Google-derived addresses or travel times are shown.
@@ -879,7 +929,7 @@ Status (Build 018): automated checks pass.
 
 ## 15. Test fixtures
 
-Version 1.0 fixtures A–H stay unchanged. New fixtures live in `sample_data/v1_1/`. V11-A was added in M3, and V11-F to V11-I in M4. They reuse the canonical locations and travel times, trimmed to the locations each uses, so they solve offline.
+Version 1.0 fixtures A–H stay unchanged. New fixtures live in `sample_data/v1_1/`. V11-A was added in M3, V11-F to V11-I in M4, and V11-E in M5. They reuse the canonical locations and travel times, trimmed to the locations each uses, so they solve offline.
 
 | Fixture | Content | Proves |
 |---|---|---|
@@ -1031,9 +1081,9 @@ Nothing requested was dropped. Bulk grid editing, incremental matrix refresh, a 
 
 ## 21. Immediate next step
 
-V1.1-M0 (Build 014) to V1.1-M4 (Build 018) are complete on branch `v1.1`. Both must-have outcomes are delivered: address-only locations (M3) and forms for every input (M4).
+V1.1-M0 (Build 014) to V1.1-M5 (Build 019) are complete on branch `v1.1`. Both must-have outcomes are delivered: address-only locations (M3) and forms for every input (M4).
 
 Next:
 
 - The M3 live-key manual check, once there is a go-ahead for billable Google calls.
-- **V1.1-M5**: optimization options and the Optimize page.
+- **V1.1-M6**: results in planner language, plan history and comparison, run sheets, scenario management, and drafts.

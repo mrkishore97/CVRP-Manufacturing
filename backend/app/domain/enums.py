@@ -125,10 +125,34 @@ class ValidationCode(StrEnum):
     AMBIGUOUS_LOCATION = "AMBIGUOUS_LOCATION"
 
 
+class ObjectiveMode(StrEnum):
+    """What the solver minimises among plans that meet every hard constraint."""
+
+    MINIMIZE_TRUCKS = "MINIMIZE_TRUCKS"
+    MINIMIZE_TRAVEL = "MINIMIZE_TRAVEL"
+    BALANCE_WORKLOAD = "BALANCE_WORKLOAD"
+
+
+class SearchEffort(StrEnum):
+    """How long the solver keeps improving a plan."""
+
+    STANDARD = "STANDARD"
+    THOROUGH = "THOROUGH"
+
+
+class BalanceStrength(StrEnum):
+    """How strongly ``BALANCE_WORKLOAD`` evens out route lengths."""
+
+    LIGHT = "LIGHT"
+    MEDIUM = "MEDIUM"
+    STRONG = "STRONG"
+
+
 class IssueSection(StrEnum):
     """Which part of the scenario a validation issue is about, for grouping and links."""
 
     SCENARIO = "scenario"
+    OPTIMIZATION_OPTIONS = "optimization_options"
     LOCATIONS = "locations"
     VEHICLES = "vehicles"
     VEHICLE_SHIFTS = "vehicle_shifts"
