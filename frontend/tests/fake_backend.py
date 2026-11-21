@@ -52,6 +52,9 @@ class FakeBackend:
         self.resolve_calls: list[list[dict[str, Any]]] = []
         self.resolve_requests: list[dict[str, Any]] = []
         self.import_calls: list[list[dict[str, Any]]] = []
+        self.task_import_calls: list[list[dict[str, Any]]] = []
+        self.extra_issues: list[dict[str, Any]] = []
+        self.template_calls: list[str] = []
         self.list_calls = 0
         self.saved: dict[str, dict[str, Any]] = {}
 
@@ -108,10 +111,13 @@ class FakeBackend:
             problems.append(
                 {"severity": "ERROR", "code": "CAPACITY_EXCEEDED", "message": "Too heavy."}
             )
+        problems.extend(deepcopy(self.extra_issues))
         return {
-            "valid": not problems,
+            "valid": not any(problem["severity"] == "ERROR" for problem in problems),
             "issues": problems,
-            "normalized_request": None if problems else {"tasks": payload.get("tasks", [])},
+            "normalized_request": None
+            if any(problem["severity"] == "ERROR" for problem in problems)
+            else {"tasks": payload.get("tasks", [])},
         }
 
     def validate_plan(self, payload: dict[str, Any]) -> api_client.WorkflowResponse:
@@ -334,6 +340,99 @@ class FakeBackend:
         return api_client.ApiResult(
             payload={
                 "request_id": "req-import",
+                "valid": not issues,
+                "rows": mapped,
+                "issues": issues,
+                "column_mapping": {},
+                "unknown_columns": [],
+            }
+        )
+
+    def import_template(self, kind: str) -> api_client.ApiResult:
+        self.template_calls.append(kind)
+        columns = {
+            "tasks": ["task_id", "po_number", "task_type", "origin_location_id", "quantity"],
+            "locations": ["name", "address", "location_id"],
+        }[kind]
+        return api_client.ApiResult(
+            payload={
+                "request_id": "req-template",
+                "kind": kind,
+                "columns": [
+                    {"name": name, "required": name != "task_id", "aliases": [], "description": ""}
+                    for name in columns
+                ],
+                "example_rows": [{name: "" for name in columns}],
+            }
+        )
+
+    def preview_task_import(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        locations: list[dict[str, str]],
+        plant_location_id: str,
+        timezone: str | None = None,
+        default_pickup_service_minutes: int = 0,
+        default_delivery_service_minutes: int = 0,
+    ) -> api_client.ApiResult:
+        """A small stand-in for the backend contract: canonical headers, IDs or names."""
+        del timezone
+        self.task_import_calls.append(deepcopy(rows))
+        by_key = {
+            location["location_id"].casefold(): location["location_id"] for location in locations
+        }
+        by_key.update(
+            {location["name"].casefold(): location["location_id"] for location in locations}
+        )
+        mapped: list[dict[str, Any]] = []
+        issues: list[dict[str, Any]] = []
+        for offset, row in enumerate(rows):
+            row_number = offset + 2
+            kind = str(row.get("task_type", "")).upper()
+            ends = {}
+            for field, plant_end in (
+                ("origin_location_id", kind == "DROP"),
+                ("destination_location_id", kind == "PICKUP"),
+            ):
+                cell = str(row.get(field) or "").strip()
+                if not cell and plant_end:
+                    ends[field] = plant_location_id
+                elif cell.casefold() in by_key:
+                    ends[field] = by_key[cell.casefold()]
+                else:
+                    issues.append(
+                        {
+                            "severity": "ERROR",
+                            "code": "UNKNOWN_LOCATION",
+                            "row_number": row_number,
+                            "field": field,
+                            "message": f"No location '{cell}'.",
+                        }
+                    )
+            if len(ends) < 2:
+                continue
+            mapped.append(
+                {
+                    "row_number": row_number,
+                    "task_id": row.get("task_id") or None,
+                    "po_number": str(row["po_number"]),
+                    "task_type": kind,
+                    **ends,
+                    "quantity": float(row["quantity"]),
+                    "ready_at": str(row["ready_at"]).replace(" ", "T"),
+                    "due_at": str(row["due_at"]).replace(" ", "T"),
+                    "due_event": "DELIVERY_COMPLETE",
+                    "pickup_service_minutes": default_pickup_service_minutes,
+                    "delivery_service_minutes": default_delivery_service_minutes,
+                    "priority": int(row.get("priority") or 1),
+                    "required_vehicle_tags": [],
+                    "notes": None,
+                }
+            )
+        return api_client.ApiResult(
+            payload={
+                "request_id": "req-task-import",
                 "valid": not issues,
                 "rows": mapped,
                 "issues": issues,

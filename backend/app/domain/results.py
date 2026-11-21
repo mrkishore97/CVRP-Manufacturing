@@ -9,6 +9,7 @@ from typing import Self
 from pydantic import Field, field_validator, model_validator
 
 from backend.app.domain.enums import (
+    IssueSection,
     PlanStatus,
     StopKind,
     ValidationCode,
@@ -18,7 +19,11 @@ from backend.app.domain.models import DomainModel, Identifier, PlanningRequest, 
 
 
 class ValidationIssue(DomainModel):
-    """A stable validation message optionally tied to one imported row and field."""
+    """A stable validation message optionally tied to one imported row and field.
+
+    ``section`` and ``item_id`` (added in V1.1-M4) say which part of the scenario and
+    which row the issue is about, so the app can group issues and link to the row.
+    """
 
     severity: ValidationSeverity
     code: ValidationCode
@@ -26,6 +31,8 @@ class ValidationIssue(DomainModel):
     row_number: int | None = Field(default=None, ge=1)
     field: str | None = None
     task_id: str | None = None
+    section: IssueSection | None = None
+    item_id: str | None = None
 
 
 class ValidationResult(DomainModel):
@@ -99,6 +106,7 @@ class TaskDiagnostic(DomainModel):
     due_at: datetime | None = None
     estimated_completion_at: datetime | None = None
     late_by_seconds: int | None = Field(default=None, ge=0)
+    priority: int | None = Field(default=None, ge=1, le=5)
 
     @field_validator("due_at", "estimated_completion_at")
     @classmethod

@@ -98,7 +98,13 @@ def test_default_results_match_version_1_0(client: TestClient, letter: str) -> N
     body = response.json()
     if response.status_code != 200:
         assert body["code"] == expected["error_code"]
-        assert sorted({detail["code"] for detail in body["details"]}) == expected["issue_codes"]
+        # Version 1.1 adds non-blocking warnings (plan §9.6), such as UNUSED_LOCATION for
+        # the shared locations these fixtures do not use. The frozen codes are the
+        # blocking ones; details now say which are warnings.
+        blocking = {
+            detail["code"] for detail in body["details"] if detail.get("severity") != "WARNING"
+        }
+        assert sorted(blocking) == expected["issue_codes"]
         return
 
     plan = body["plan"]

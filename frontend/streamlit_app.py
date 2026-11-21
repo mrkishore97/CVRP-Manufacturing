@@ -87,10 +87,14 @@ def render_app() -> None:
 
     st.title("Manufacturing PO Route Optimizer")
     st.caption("Deadline-aware pickup, drop, and pickup-drop planning for ready POs")
-    if health_error is not None:
-        render_backend_error(health_error)
-        st.info("You can still view and edit the scenario. Checking and planning need the API.")
-    render_flash()
+    # One container always holds the notices, so the page below keeps the same place in
+    # the layout whether or not a message is shown. Otherwise Streamlit treats the page's
+    # tabs as new after a one-off message and opens their first tab again.
+    with st.container():
+        if health_error is not None:
+            render_backend_error(health_error)
+            st.info("You can still view and edit the scenario. Checking and planning need the API.")
+        render_flash()
     page.render(context)
 
 

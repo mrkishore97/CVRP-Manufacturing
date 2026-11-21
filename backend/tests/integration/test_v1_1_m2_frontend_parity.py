@@ -131,7 +131,9 @@ def test_version_1_0_payload_b_loads_over_an_invalid_scenario_and_cannot_solve(
     assert _workspace(app).scenario["scenario_id"] == "B"
 
     _go(app, "review")
-    assert any("CAPACITY_EXCEEDED" in frame.value["code"].tolist() for frame in app.dataframe)
+    # Since V1.1-M4 Review lists each issue with a "Go to" button, grouped by section.
+    assert any("CAPACITY_EXCEEDED" in str(element.value) for element in app.markdown)
+    assert any(str(expander.label).startswith("Tasks: 1 error(s)") for expander in app.expander)
     _go(app, "optimize")
     assert next(b for b in app.button if b.label == "Solve route plan").disabled
 

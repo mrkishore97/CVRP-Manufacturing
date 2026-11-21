@@ -3,7 +3,7 @@
 **Purpose:** Chronological implementation and verification record  
 **Project plan:** `project_plan.md` (Version 1.0); `project_plan_v1.1.md` (Version 1.1, from Build 014)  
 **Started:** 2026-06-21  
-**Current milestone:** Version 1.1 — V1.1-M3 complete on branch `v1.1` (live-key manual check outstanding); next V1.1-M4
+**Current milestone:** Version 1.1 — V1.1-M4 complete on branch `v1.1` (M3 live-key manual check outstanding); next V1.1-M5
 
 ## Logging rules
 
@@ -1459,3 +1459,154 @@ Also tested:
 
 - Run the live-key manual check when approved.
 - Start V1.1-M4 (fleet, shifts, tasks, import, review).
+
+## 2026-11-20 — Build 018 — V1.1-M4 — Fleet, shifts, tasks, import, review
+
+Plan: `project_plan_v1.1.md` §14, V1.1-M4 (design in §9.3–9.6, §10.4, §10.5, §10.7, §15).
+
+### Scope
+
+- Fleet page with the shift generator; Tasks page; task import and apply through the backend contract; templates.
+- Review page with the new warnings.
+- Backend completion of the fields these forms expose: the route-distance limit, priority weights, and validator re-checks.
+
+### Decisions
+
+No open decision blocked M4. D3 (priority scale and weights 1/2/4/8/16) was settled on 2026-11-16 and is implemented as decided.
+
+### Changes
+
+- **Backend: solver and validator**
+  - `domain/options.py` (new): priority labels and weights (D3).
+  - `optimization/solver.py`:
+    - A left-out task node costs `dropped_task_penalty` × its priority weight. With every priority at 1, the model is exactly Version 1.0's.
+    - A `RouteDistance` dimension is added only when some active truck has a distance limit.
+    - The per-task check reports `ROUTE_DISTANCE_LIMIT_EXCEEDED` when only a distance limit stops a truck from doing the task alone, in time.
+    - Every task diagnostic carries `priority`. The partial-plan message now names "fleet time, capacity, or route allowance"; its code is unchanged.
+  - `optimization/validator.py`: rejects routes that carry a task without its tags, last longer than the truck's or shift's route-time limit (waiting included), exceed the truck's distance limit, or use a disabled truck.
+- **Backend: validation (Review)**
+  - New warnings:
+    - `UNKNOWN_FIELD`, for top-level keys outside the known set.
+    - `UNUSED_LOCATION`.
+    - `VEHICLE_WITHOUT_SHIFT`, for enabled trucks only.
+    - `NO_COMPATIBLE_VEHICLE`: tags no enabled truck has, or a quantity only too-small tagged trucks could carry.
+    - `TASK_WINDOW_OUTSIDE_SHIFTS`.
+  - Overlapping shifts (`SHIFT_OVERLAP`) and shifts outside the period (`OUTSIDE_PLANNING_HORIZON`) are now named per shift. They used to be one generic `INVALID_VALUE`; validity is unchanged.
+  - `ValidationIssue` gains `section` and `item_id` (additive). The details of a rejected payload carry `severity`, `section`, and `item_id`.
+- **Backend: import**
+  - `domain/task_import.py` (new):
+    - Task spreadsheet preview through the same column table as JSON validation.
+    - Location cells match an ID, then a unique name, ignoring case and spacing.
+    - The plant end of a pickup or drop may be empty, and so may `task_id`.
+    - Priority labels are accepted. Empty service minutes take the scenario defaults.
+    - Local times are checked for daylight-saving gaps.
+    - Template descriptions are built from the same column specs.
+  - `api/routes/imports.py`: `POST /imports/tasks/preview` (limited by `API_MAX_TASKS`) and `GET /imports/templates/{tasks|locations}`.
+- **Frontend: state**
+  - `state/fleet.py` (new):
+    - Trucks: capacity up to three decimals, tags, h:mm and km limits.
+    - Shifts: an end time at or before the start time is the next day; the plant is the default end; "copy to the next day".
+    - Overlap detection, and the generator, which flags shifts that already exist or overlap and gives unique IDs.
+  - `state/tasks.py` (new):
+    - Movements fill the plant end; the form rules match the backend's.
+    - Duplicate marks the PO "(copy)".
+    - Immediate tag and capacity warnings; filters.
+    - Import apply in three modes, all-or-nothing.
+  - `state/settings.py`: `extend_period`. Forms that add shifts or tasks outside the period grow it to whole days and say so; it never shrinks on its own.
+- **Frontend: views**
+  - `fleet.py` and `tasks.py` are forms in tabs (Add / Edit / Generate / Import), because Streamlit does not nest expanders.
+  - On the Tasks page the movement is chosen above the form, and the plant end is a disabled picker holding the plant.
+  - `review.py` groups issues by section with "Go to" buttons that open the row's form, and offers "Fit the planning period" when something is outside it.
+  - `imports.py` (new): template downloads (CSV, and Excel with a column guide), fetched once per session.
+  - `import_preview.py` now only reads files and writes templates. Its alias table, a second copy of the backend's, is deleted (F12).
+- **Sample fixtures:** V11-F (priority shortage), V11-G (tags), V11-H (route time and distance limits), V11-I (multi-day shifts ending at a hub). Each reuses the canonical locations and travel times, trimmed to what it uses.
+- **Docs:** plan status and as-built notes (§6.1, §6.3, §9.3–9.6, §10.4, §10.5, §10.7, §14, §15, §21); README "Current status"; `docs/import_contract.md` (spreadsheet import, apply modes, templates); `sample_data/v1_1/README.md`.
+
+### Changed existing tests
+
+Each change is deliberate:
+
+- **`test_v1_0_characterization.py`, Scenario B.** The 422 details of the Version 1.0 payload now also list the new `UNUSED_LOCATION` warnings for its unused shared locations. Details now carry `severity`, and the test compares the blocking codes against the frozen `["CAPACITY_EXCEEDED"]`. The frozen file is unchanged.
+- **M2 parity test and `test_streamlit_app.py`.** Review now lists issues as lines with "Go to" buttons instead of a table, so these assertions look for the issue there.
+- **`test_state_freshness.py`.** Issue rows gained `section` and `item_id`.
+- **`test_import_preview.py`.** Rewritten for file reading and templates, plus a check that the frontend has no alias table any more.
+- **Fake backend.** It gained `preview_task_import`, `import_template`, and configurable extra issues.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| `python -m ruff format --check .` | PASS | |
+| `python -m ruff check .` | PASS | |
+| `python -m mypy backend frontend` | PASS | No issues in 151 source files. |
+| `python -m pytest -q` | PASS | **627 passed** (489 before: 135 in new files, 3 more in the rewritten import test). Same 3 OR-Tools/SWIG warnings. |
+| Characterization tests A–F | PASS | Same status, scheduled set, truck-shifts, and distance as Version 1.0. |
+| `python scripts/validate_m0.py` | PASS | 672 checks. |
+| `python scripts/validate_m9_release.py` | PASS | |
+| `python scripts/review_m2_payloads.py` | PASS | |
+| `python scripts/smoke_m1.py` | PASS | `DATABASE_PATH` set to a scratch file. |
+| `python -m pip check` | PASS | |
+| Real database untouched | PASS | Modification time of `data/route_optimizer.db` unchanged (2026-11-18 22:08). |
+
+Plan M4 checks and their tests:
+
+| Plan check | Tests |
+|---|---|
+| Vehicles, shifts, and all three task movements created through forms validate on the backend | `test_a_complete_scenario_is_built_and_solved_without_opening_json` (real app and backend); `test_all_three_movements_are_added_through_the_form`; `test_imported_rows_validate_as_planning_tasks` |
+| Shift generator: unique IDs, overlaps flagged, existing skipped, multi-day and weekday selection | `test_generator_covers_several_days_on_the_chosen_weekdays_with_unique_ids` (two weeks, three trucks: 30 unique IDs), `test_generator_skips_existing_shifts_and_flags_overlaps`, `test_the_generator_adds_only_new_shifts_and_extends_the_period` |
+| Movement selection fills and locks the plant end; backend rules agree | `test_choosing_a_movement_fills_and_locks_the_plant_end` (all three movements), `test_the_movement_fills_the_plant_end`, `test_movement_rules_agree_with_the_backend`, `test_movement_and_plant_must_agree` |
+| Import: append, update, replace; all-or-nothing; locations by ID or name; one alias table | `test_append_…`, `test_update_…`, `test_replace_…`, `test_a_failing_row_imports_nothing` (4 cases), `test_a_checked_import_is_applied_in_the_chosen_mode`, `test_a_failing_import_changes_nothing`, `test_locations_match_by_id_or_exact_name`, `test_headers_map_through_the_shared_contract`, `test_templates_come_from_the_same_contract`, `test_the_frontend_has_no_column_alias_table_of_its_own` |
+| Distance limit enforced by the solver, rejected by the validator, reported per task | `test_distance_limit_is_enforced_by_the_solver` (Scenario A with 150 km: every route within it, more than one truck), `test_validator_rejects_routes_over_the_distance_limit`, `test_a_task_beyond_every_distance_limit_is_reported_individually` |
+| Priority: all scheduled when feasible; higher kept in the shortage fixture; weights monotonic; pairs together | `test_every_task_is_scheduled_when_everything_fits_whatever_the_priority`, `test_shortage_keeps_the_higher_priorities` (V11-F keeps 5 and 4), `test_reversed_priorities_keep_the_other_tasks`, `test_priority_scale_and_weights_follow_decision_d3`, `test_pickup_drop_pairs_are_kept_or_dropped_together`, `test_priority_penalties_dwarf_routing_costs_and_cannot_overflow` |
+| Validator rejects corrupted plans violating tags, duration, or distance | `test_validator_rejects_a_route_without_the_required_tags`, `test_validator_rejects_routes_over_the_duration_limit` (truck and shift), `test_validator_rejects_routes_over_the_distance_limit` |
+| Default-option characterization tests from M0 still pass | `test_v1_0_characterization.py` (A–F), `test_without_any_distance_limit_no_distance_dimension_is_added` |
+
+Also tested:
+
+- Review warnings with sections and IDs, including on the API.
+- Version 1.0 payloads stay valid with only warnings added.
+- "Go to" opens the truck or task form with the row selected, and "Fit the planning period" works.
+- Fleet and task edits keep travel times current and make no provider call.
+- Renaming keeps the row selected in the edit picker.
+- A one-off message no longer moves the page below it.
+
+### Manual checks
+
+- **Browser run with the offline provider.** In-app browser; Streamlit on 8525; backend on 8024 with a scratch database and the M3 fake provider.
+  - From "Start a new empty scenario": plant and four locations by address, then one resolve.
+  - Three trucks through the form, including a refrigerated truck limited to 9:00 and a truck limited to 150 km.
+  - Shift generator: 7–8 December for all three trucks, "6 new, 0 skipped". The message said the planning period was extended to include them.
+  - Tasks through the form, all three movements. Pickup and Drop showed the plant end as a disabled picker; Pickup-drop offered both ends without the plant.
+  - Spreadsheet import of a three-row CSV, with a location by name, one by a lower-case name, one by ID, and empty plant ends. The backend matched every location; "3 added".
+  - Edited an imported row (quantity and priority) and saved.
+  - Review: valid with no issues. Travel times calculated; solved **FEASIBLE**, all POs scheduled. The refrigerated PO went on the refrigerated truck, read from the stored plan. Saved the scenario.
+  - Each address was a cache hit on the second build: 0 lookups, 5 from the 30-day cache.
+- **Found and fixed during the browser run**
+  - After an import or save, the next widget change reopened the first tab, for example from "Edit" back to "Add". Cause: the one-off message disappeared, so the page below it moved up one place and Streamlit treated the tabs as new. Notices are now always drawn in one container, with a regression test.
+  - Editing a task's PO number, or a location's name, made the edit picker jump to the first row. The picker's labels include the name, and Streamlit resets a selectbox whose options change. Every save now keeps its row selected, on Trucks, Shifts, Tasks, and Locations (an M3 bug too), with a regression test.
+  - Follow-on from the notices fix: "How to import" is now always shown on the Import tab, instead of only with a checked file. The planner sees beforehand how the next file will be applied, and the caption warns when Replace is chosen.
+    - Why it mattered in tests: when a click triggers a rerun, `AppTest` keeps the elements of the interrupted first pass that the rerun does not redraw. A keyed radio that vanished after an import then broke the test's next run.
+    - The browser removes such leftovers when the run finishes, so the app itself was not affected.
+- **Notes**
+  - The browser cannot use the operating system's file dialog, so the CSV was handed to the upload control by a page script; the app's own steps from there were clicked normally. `AppTest` cannot upload files either: automated tests start from the checked preview.
+  - Changing app code while a browser session is open makes Streamlit reload its modules, and that session's workspace no longer matches the reloaded class ("Session workspace is missing"). It happens only during development; a refresh starts a new session. The scenario was rebuilt through the forms after the layout fix, as recorded above.
+
+### Known issues
+
+- OR-Tools/SWIG deprecation warnings remain.
+- The M3 live-key manual check is still outstanding (needs a go-ahead for billable Google calls).
+- The first task added to an empty task list, or the first truck or shift, still reopens the first tab once. The table then appears above the tabs and moves them. It happens once per page.
+- Fixtures V11-B, C, D, E, and J (plan §15) belong to other milestones and were not created here.
+- Tests only: after an action that removes a keyed checkbox, such as "Also delete its shifts" once the truck is deleted, a further `AppTest` run would fail on the leftover element. No test runs after such a deletion; the app is not affected.
+- `.env` was not read or changed.
+
+### Gate status
+
+- **V1.1-M4 COMPLETE.** A complete scenario is built and solved without opening JSON. This is shown by the gate test, real app and backend from an empty scenario, and by the browser run.
+- **Must-have M-1** (forms for every input) delivered. With M3, all five must-haves (M-1 to M-5) are now in place.
+- Clean working tree: PASS. The milestone was committed on branch `v1.1` at the user's request (2026-11-20).
+
+### Next action
+
+- Run the M3 live-key manual check when approved.
+- Start V1.1-M5 (optimization options and the Optimize page).

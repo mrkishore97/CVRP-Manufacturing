@@ -415,6 +415,8 @@ def validation_issue_rows(validation: Mapping[str, Any] | None) -> list[JsonObje
             "field": issue.get("field"),
             "task_id": issue.get("task_id"),
             "message": issue.get("message"),
+            "section": issue.get("section"),
+            "item_id": issue.get("item_id"),
         }
         for issue in issues
         if isinstance(issue, dict)

@@ -1,246 +1,87 @@
-"""Frontend CSV/XLSX task import preview helpers.
+"""Reading spreadsheet files and writing import templates.
 
-The backend remains the source of truth for validation. This module gives planners
-fast, visible feedback on headers and blank required cells before they send a
-scenario to the API.
+Since V1.1-M4 the frontend has no column table of its own (plan §9.5, finding F12):
+the backend's import contract maps headers and checks rows for tasks and locations.
+This module only turns an uploaded CSV/XLSX file into rows keyed by its own headers,
+and turns the backend's template description into downloadable CSV and XLSX files.
 """
 
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass
+import io
+from collections.abc import Mapping
 from typing import Any
 
 import pandas as pd
 
-REQUIRED_TASK_COLUMNS = (
-    "task_id",
-    "po_number",
-    "task_type",
-    "origin_location_id",
-    "destination_location_id",
-    "quantity",
-    "ready_at",
-    "due_at",
-)
-
-OPTIONAL_TASK_COLUMNS = (
-    "due_event",
-    "pickup_service_minutes",
-    "delivery_service_minutes",
-    "priority",
-    "required_vehicle_tags",
-    "notes",
-)
-
-_HEADER_ALIASES: dict[str, str] = {
-    "id": "task_id",
-    "task_id": "task_id",
-    "task id": "task_id",
-    "po": "po_number",
-    "po_number": "po_number",
-    "po number": "po_number",
-    "purchase_order": "po_number",
-    "purchase order": "po_number",
-    "purchase_order_number": "po_number",
-    "purchase order number": "po_number",
-    "type": "task_type",
-    "task_type": "task_type",
-    "movement_type": "task_type",
-    "movement type": "task_type",
-    "origin": "origin_location_id",
-    "origin_location_id": "origin_location_id",
-    "pickup_location": "origin_location_id",
-    "pickup location": "origin_location_id",
-    "from_location": "origin_location_id",
-    "from location": "origin_location_id",
-    "destination": "destination_location_id",
-    "destination_location_id": "destination_location_id",
-    "drop_location": "destination_location_id",
-    "drop location": "destination_location_id",
-    "to_location": "destination_location_id",
-    "to location": "destination_location_id",
-    "quantity": "quantity",
-    "load": "quantity",
-    "demand": "quantity",
-    "qty": "quantity",
-    "ready_at": "ready_at",
-    "ready": "ready_at",
-    "ready_date": "ready_at",
-    "ready date": "ready_at",
-    "ready_datetime": "ready_at",
-    "ready datetime": "ready_at",
-    "available_at": "ready_at",
-    "available at": "ready_at",
-    "due_at": "due_at",
-    "due": "due_at",
-    "due_date": "due_at",
-    "due date": "due_at",
-    "due_datetime": "due_at",
-    "due datetime": "due_at",
-    "deadline": "due_at",
-    "due_event": "due_event",
-    "deadline_event": "due_event",
-    "deadline event": "due_event",
-    "deadline_applies_to": "due_event",
-    "deadline applies to": "due_event",
-    "pickup_service_minutes": "pickup_service_minutes",
-    "pickup_service": "pickup_service_minutes",
-    "pickup service": "pickup_service_minutes",
-    "pickup_minutes": "pickup_service_minutes",
-    "pickup minutes": "pickup_service_minutes",
-    "delivery_service_minutes": "delivery_service_minutes",
-    "delivery_service": "delivery_service_minutes",
-    "delivery service": "delivery_service_minutes",
-    "drop_service": "delivery_service_minutes",
-    "drop service": "delivery_service_minutes",
-    "delivery_minutes": "delivery_service_minutes",
-    "delivery minutes": "delivery_service_minutes",
-    "priority": "priority",
-    "task_priority": "priority",
-    "task priority": "priority",
-    "required_vehicle_tags": "required_vehicle_tags",
-    "vehicle_tags": "required_vehicle_tags",
-    "vehicle tags": "required_vehicle_tags",
-    "required_tags": "required_vehicle_tags",
-    "required tags": "required_vehicle_tags",
-    "notes": "notes",
-    "note": "notes",
-    "comments": "notes",
-}
+from frontend.export_utils import escape_spreadsheet_value
 
 
-@dataclass(frozen=True, slots=True)
-class ImportIssue:
-    """One visible import-preview issue."""
-
-    severity: str
-    code: str
-    message: str
-    field: str | None = None
-    row_number: int | None = None
-    source_column: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ImportPreview:
-    """Canonical task rows plus preview-only warnings/errors."""
-
-    rows: tuple[dict[str, Any], ...]
-    issues: tuple[ImportIssue, ...]
-
-    @property
-    def has_blocking_errors(self) -> bool:
-        """Return whether the preview found errors requiring spreadsheet edits."""
-        return any(issue.severity == "error" for issue in self.issues)
-
-    def issue_rows(self) -> list[dict[str, Any]]:
-        """Return issues in a table-friendly shape."""
-        return [
-            {
-                "severity": issue.severity,
-                "code": issue.code,
-                "row_number": issue.row_number,
-                "field": issue.field,
-                "source_column": issue.source_column,
-                "message": issue.message,
-            }
-            for issue in self.issues
-        ]
-
-
-def normalize_header(value: str) -> str:
-    """Normalize a spreadsheet header to a stable comparison key."""
-    normalized = re.sub(r"[^a-z0-9]+", "_", value.strip().casefold())
-    return normalized.strip("_")
-
-
-def _canonical_name(header: str) -> str | None:
-    direct = _HEADER_ALIASES.get(header.strip().casefold())
-    if direct is not None:
-        return direct
-    return _HEADER_ALIASES.get(normalize_header(header))
-
-
-def _is_blank(value: Any) -> bool:
-    if value is None:
-        return True
-    if isinstance(value, str):
-        return not value.strip()
+def read_table_rows(file_name: str, content: bytes) -> list[dict[str, Any]]:
+    """Rows of a CSV or XLSX file keyed by its headers; cells are text or numbers."""
     try:
-        return bool(pd.isna(value))
+        if file_name.lower().endswith(".xlsx"):
+            frame = pd.read_excel(io.BytesIO(content), dtype=object)
+        else:
+            frame = pd.read_csv(io.BytesIO(content), dtype=str, encoding="utf-8-sig")
+    except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as exc:
+        raise ValueError(f"The file could not be read: {exc}") from exc
+    records: list[dict[str, Any]] = []
+    for record in frame.to_dict(orient="records"):
+        records.append({str(key): _cell(value) for key, value in record.items()})
+    if not records:
+        raise ValueError("The file has no rows.")
+    return records
+
+
+def _cell(value: Any) -> str | int | float | bool | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
     except (TypeError, ValueError):
-        return False
+        pass
+    if isinstance(value, bool | int | float | str):
+        return value
+    return str(value)
 
 
-def preview_task_import(frame: pd.DataFrame) -> ImportPreview:
-    """Map a CSV/XLSX dataframe into canonical task rows and visible issues."""
-    issues: list[ImportIssue] = []
-    mapped_columns: dict[str, str] = {}
-    canonical_to_source: dict[str, str] = {}
+def _template_frames(template: Mapping[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    columns = [column for column in template.get("columns", []) if isinstance(column, dict)]
+    names = [str(column["name"]) for column in columns]
+    examples = [row for row in template.get("example_rows", []) if isinstance(row, dict)]
+    example_frame = pd.DataFrame(
+        [{name: escape_spreadsheet_value(row.get(name, "")) for name in names} for row in examples],
+        columns=names,
+    )
+    guide_frame = pd.DataFrame(
+        [
+            {
+                "Column": column["name"],
+                "Required": "Yes" if column.get("required") else "No",
+                "Also accepted as": ", ".join(str(alias) for alias in column.get("aliases", [])),
+                "What to enter": column.get("description", ""),
+            }
+            for column in columns
+        ],
+        columns=["Column", "Required", "Also accepted as", "What to enter"],
+    )
+    return example_frame, guide_frame
 
-    for raw_column in frame.columns:
-        source_column = str(raw_column)
-        canonical = _canonical_name(source_column)
-        if canonical is None:
-            issues.append(
-                ImportIssue(
-                    severity="warning",
-                    code="UNKNOWN_COLUMN",
-                    source_column=source_column,
-                    message=f"Column '{source_column}' is not used by the planner.",
-                )
-            )
-            continue
-        existing_source = canonical_to_source.get(canonical)
-        if existing_source is not None:
-            issues.append(
-                ImportIssue(
-                    severity="error",
-                    code="DUPLICATE_COLUMN",
-                    field=canonical,
-                    source_column=source_column,
-                    message=(
-                        f"Columns '{existing_source}' and '{source_column}' both map to "
-                        f"'{canonical}'. Keep only one."
-                    ),
-                )
-            )
-            continue
-        mapped_columns[source_column] = canonical
-        canonical_to_source[canonical] = source_column
 
-    for required_column in REQUIRED_TASK_COLUMNS:
-        if required_column not in canonical_to_source:
-            issues.append(
-                ImportIssue(
-                    severity="error",
-                    code="MISSING_COLUMN",
-                    field=required_column,
-                    message=f"Required column '{required_column}' is missing.",
-                )
-            )
+def template_csv_bytes(template: Mapping[str, Any]) -> bytes:
+    """Headers and the example row; Excel opens the UTF-8 file correctly."""
+    example_frame, _ = _template_frames(template)
+    text: str = example_frame.to_csv(index=False)
+    return text.encode("utf-8-sig")
 
-    rows: list[dict[str, Any]] = []
-    for row_offset, (_index, row) in enumerate(frame.iterrows(), start=2):
-        canonical_row: dict[str, Any] = {}
-        for source_column, canonical in mapped_columns.items():
-            value = row[source_column]
-            canonical_row[canonical] = None if _is_blank(value) else value
-        rows.append(canonical_row)
-        for required_column in REQUIRED_TASK_COLUMNS:
-            if _is_blank(canonical_row.get(required_column)):
-                issues.append(
-                    ImportIssue(
-                        severity="error",
-                        code="MISSING_REQUIRED_VALUE",
-                        field=required_column,
-                        row_number=row_offset,
-                        source_column=canonical_to_source.get(required_column),
-                        message=(
-                            f"Row {row_offset} is missing required value '{required_column}'."
-                        ),
-                    )
-                )
 
-    return ImportPreview(rows=tuple(rows), issues=tuple(issues))
+def template_xlsx_bytes(template: Mapping[str, Any]) -> bytes:
+    """A workbook with the template sheet and a sheet explaining every column."""
+    example_frame, guide_frame = _template_frames(template)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        example_frame.to_excel(writer, sheet_name="Template", index=False)
+        guide_frame.to_excel(writer, sheet_name="Columns", index=False)
+    return output.getvalue()

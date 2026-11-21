@@ -18,12 +18,15 @@ from backend.app.domain.models import (
     Vehicle,
     VehicleShift,
 )
+from backend.app.domain.options import priority_weight
 from backend.app.domain.results import PlanResult, PlanRoute, PlanStop, TaskDiagnostic
 from backend.app.optimization.task_expander import ExpandedTask, ExpandedTaskNode, expand_tasks
 from backend.app.optimization.validator import validate_plan_result
 
 _LOAD_SCALE: Final = Decimal("1000")
 _ROUTING_FAIL_TIMEOUT: Final = 4
+_NO_DISTANCE_LIMIT: Final = 2**40
+"""Route-distance capacity for trucks without a limit: about a billion kilometres."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +36,8 @@ class SolverConfig:
     time_limit_seconds: int = 10
     vehicle_fixed_cost: int = 1_000_000
     dropped_task_penalty: int = 100_000_000
+    """Cost of leaving out one Routine task's pickup or delivery; higher priorities
+    multiply it by their weight (1, 2, 4, 8, 16)."""
 
     def __post_init__(self) -> None:
         if self.time_limit_seconds <= 0:
@@ -66,6 +71,7 @@ class _ProblemData:
     pairs: tuple[ExpandedTask, ...]
     pair_node_indices: dict[str, tuple[int, int]]
     compatible_vehicle_indices: dict[str, tuple[int, ...]]
+    task_weights: dict[str, int]
     location_index: dict[str, int]
     horizon_start: datetime
     max_time_seconds: int
@@ -147,12 +153,30 @@ def _route_duration_limit_seconds(vehicle: Vehicle, shift: VehicleShift) -> int:
     return limit
 
 
+def _route_distance_limit_meters(vehicle: Vehicle) -> int:
+    limit = vehicle.maximum_route_distance_meters
+    return _NO_DISTANCE_LIMIT if limit is None else limit
+
+
 def _matrix_lookup(matrix: RoutingMatrix) -> dict[str, int]:
     return {location_id: index for index, location_id in enumerate(matrix.location_ids)}
 
 
 def _seconds_from_horizon(data: _ProblemData, value: datetime) -> int:
     return int((value.astimezone(UTC) - data.horizon_start).total_seconds())
+
+
+def _with_priorities(
+    request: PlanningRequest, diagnostics: Sequence[TaskDiagnostic]
+) -> tuple[TaskDiagnostic, ...]:
+    """Each task diagnostic shows the task's priority (plan §10.4)."""
+    priorities = {task.task_id: task.priority for task in request.tasks}
+    return tuple(
+        diagnostic.model_copy(update={"priority": priorities[diagnostic.task_id]})
+        if diagnostic.task_id in priorities and diagnostic.priority is None
+        else diagnostic
+        for diagnostic in diagnostics
+    )
 
 
 def _routing_failure_status(*, timed_out: bool) -> PlanStatus:
@@ -386,7 +410,22 @@ class OrToolsCapacitySolver:
         diagnostics: list[TaskDiagnostic] = []
         for task in request.tasks:
             timing = self._earliest_individual_timing(request, matrix, task.task_id)
-            if timing is None:
+            if timing is None and self._only_distance_blocks(request, matrix, task.task_id):
+                diagnostics.append(
+                    _deadline_diagnostic(
+                        code="ROUTE_DISTANCE_LIMIT_EXCEEDED",
+                        message=(
+                            "Every truck that could carry this PO in time would exceed its "
+                            "maximum route distance, even with this PO alone. Raise a "
+                            "truck's distance limit or add a truck without one."
+                        ),
+                        task_id=task.task_id,
+                        po_number=task.po_number,
+                        due_at=task.due_at,
+                        estimated_completion_at=None,
+                    )
+                )
+            elif timing is None:
                 diagnostics.append(
                     _deadline_diagnostic(
                         code="NO_COMPATIBLE_SHIFT_TIME",
@@ -416,11 +455,24 @@ class OrToolsCapacitySolver:
                 )
         return tuple(diagnostics)
 
+    def _only_distance_blocks(
+        self,
+        request: PlanningRequest,
+        matrix: RoutingMatrix,
+        task_id: str,
+    ) -> bool:
+        """Whether a truck could serve the task alone in time but for its distance limit."""
+        timing = self._earliest_individual_timing(request, matrix, task_id, honour_distance=False)
+        task = next(task for task in request.tasks if task.task_id == task_id)
+        return timing is not None and timing.event_completion_at <= task.due_at
+
     def _earliest_individual_timing(
         self,
         request: PlanningRequest,
         matrix: RoutingMatrix,
         task_id: str,
+        *,
+        honour_distance: bool = True,
     ) -> _TaskTiming | None:
         task = next(task for task in request.tasks if task.task_id == task_id)
         pair = next(pair for pair in expand_tasks((task,), request.plant_location_id))
@@ -429,6 +481,11 @@ class OrToolsCapacitySolver:
 
         def duration(from_location_id: str, to_location_id: str) -> int:
             return matrix.duration_seconds[location_index[from_location_id]][
+                location_index[to_location_id]
+            ]
+
+        def distance(from_location_id: str, to_location_id: str) -> int:
+            return matrix.distance_meters[location_index[from_location_id]][
                 location_index[to_location_id]
             ]
 
@@ -441,6 +498,14 @@ class OrToolsCapacitySolver:
                 continue
             if task.quantity > vehicle.capacity:
                 continue
+            if honour_distance and vehicle.maximum_route_distance_meters is not None:
+                route_distance = (
+                    distance(shift.start_location_id, pair.pickup.location_id)
+                    + distance(pair.pickup.location_id, pair.delivery.location_id)
+                    + distance(pair.delivery.location_id, shift.end_location_id)
+                )
+                if route_distance > vehicle.maximum_route_distance_meters:
+                    continue
 
             pickup_arrival = shift.start + timedelta(
                 seconds=duration(shift.start_location_id, pair.pickup.location_id)
@@ -531,6 +596,7 @@ class OrToolsCapacitySolver:
             pairs=pairs,
             pair_node_indices=pair_node_indices,
             compatible_vehicle_indices=compatible_vehicle_indices,
+            task_weights={task.task_id: priority_weight(task.priority) for task in request.tasks},
             location_index=_matrix_lookup(matrix),
             horizon_start=request.horizon.start,
             max_time_seconds=int((request.horizon.end - request.horizon.start).total_seconds()),
@@ -607,6 +673,18 @@ class OrToolsCapacitySolver:
             True,
             "RouteDuration",
         )
+        if any(
+            vehicle.maximum_route_distance_meters is not None for vehicle in data.vehicles_by_shift
+        ):
+            # Plan §10.5. Added only when a truck has a limit, so scenarios without one
+            # are solved exactly as in Version 1.0.
+            routing.AddDimensionWithVehicleCapacity(
+                distance_callback_index,
+                0,
+                [_route_distance_limit_meters(vehicle) for vehicle in data.vehicles_by_shift],
+                True,
+                "RouteDistance",
+            )
         routing.AddDimension(
             duration_callback_index,
             data.max_time_seconds,
@@ -682,8 +760,11 @@ class OrToolsCapacitySolver:
             routing.SetAllowedVehiclesForIndex(allowed_vehicle_indices, pickup_index)
             routing.SetAllowedVehiclesForIndex(allowed_vehicle_indices, delivery_index)
             if allow_dropping:
-                routing.AddDisjunction([pickup_index], self._config.dropped_task_penalty)
-                routing.AddDisjunction([delivery_index], self._config.dropped_task_penalty)
+                # Priority (plan §10.4): leaving out a task costs its weight, so the
+                # partial plan drops the set of tasks with the least total weight.
+                penalty = self._config.dropped_task_penalty * data.task_weights[pair.task_id]
+                routing.AddDisjunction([pickup_index], penalty)
+                routing.AddDisjunction([delivery_index], penalty)
 
     def _solve_model(
         self,
@@ -768,9 +849,9 @@ class OrToolsCapacitySolver:
             _deadline_diagnostic(
                 code="INSUFFICIENT_COMBINED_FLEET_TIME",
                 message=(
-                    "This PO is feasible by itself, but it was left out of the relaxed "
-                    "diagnostic plan because the fleet cannot complete every PO before "
-                    "the current deadlines."
+                    "This PO can be planned by itself, but there is not enough fleet time, "
+                    "capacity, or route allowance to plan it with the others. When not "
+                    "everything fits, lower-priority POs are left out first."
                 ),
                 task_id=task.task_id,
                 po_number=task.po_number,
@@ -784,7 +865,7 @@ class OrToolsCapacitySolver:
             plan_id=f"{request.scenario_id}:M5",
             status=status,
             routes=tuple(routes),
-            diagnostics=diagnostics,
+            diagnostics=_with_priorities(request, diagnostics),
             scheduled_task_ids=scheduled_task_ids,
             unscheduled_task_ids=unscheduled_task_ids,
             total_distance_meters=sum(route.total_distance_meters for route in routes),
@@ -905,7 +986,7 @@ class OrToolsCapacitySolver:
             plan_id=f"{request.scenario_id}:M5",
             status=status,
             routes=(),
-            diagnostics=tuple(diagnostics),
+            diagnostics=_with_priorities(request, diagnostics),
             scheduled_task_ids=scheduled_task_ids,
             unscheduled_task_ids=unscheduled_task_ids,
             solver_elapsed_seconds=elapsed_seconds,

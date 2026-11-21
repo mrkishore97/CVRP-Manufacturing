@@ -6,14 +6,13 @@ that sends only new or changed addresses; reruns and page visits send nothing.
 
 from __future__ import annotations
 
-import io
 from collections.abc import Mapping
 from typing import Any
 
-import pandas as pd
 import streamlit as st
 
 from frontend.api_client import BackendClientError
+from frontend.import_preview import read_table_rows
 from frontend.state.locations import (
     ADDRESS_HINT,
     READINESS_LABELS,
@@ -56,6 +55,7 @@ from frontend.views.components import (
     set_workspace,
     table,
 )
+from frontend.views.imports import render_template_downloads
 from frontend.views.opening import saved_scenario_label, saved_scenarios
 
 EDIT_KEY = "locations_edit_id"
@@ -343,8 +343,8 @@ def _save_edit(
     except ScenarioEditError as exc:
         st.error(str(exc))
         return
-    if renames:
-        st.session_state[EDIT_NEXT_KEY] = new_id
+    # The picker's labels include the name; keep this location selected.
+    st.session_state[EDIT_NEXT_KEY] = new_id if renames else location_id
     message = "Location saved."
     if address_changed:
         message += " Its address changed: resolve it again."
@@ -380,6 +380,7 @@ def _render_import(ctx: AppContext) -> None:
             "optional). Rows matching an existing location by ID, or by a unique name, "
             "update it; other rows are added. Imported addresses are not resolved yet."
         )
+        render_template_downloads(ctx, "locations", "location")
         uploaded = st.file_uploader(
             "Location file", type=("csv", "xlsx"), key="locations_import_file"
         )
@@ -503,33 +504,3 @@ def _session_details(
     ):
         return None
     return details
-
-
-def read_table_rows(file_name: str, content: bytes) -> list[dict[str, Any]]:
-    """Rows of a CSV or XLSX file keyed by its headers; cells are text or numbers."""
-    try:
-        if file_name.lower().endswith(".xlsx"):
-            frame = pd.read_excel(io.BytesIO(content), dtype=object)
-        else:
-            frame = pd.read_csv(io.BytesIO(content), dtype=str, encoding="utf-8-sig")
-    except (ValueError, UnicodeDecodeError, pd.errors.ParserError) as exc:
-        raise ValueError(f"The file could not be read: {exc}") from exc
-    records: list[dict[str, Any]] = []
-    for record in frame.to_dict(orient="records"):
-        records.append({str(key): _cell(value) for key, value in record.items()})
-    if not records:
-        raise ValueError("The file has no rows.")
-    return records
-
-
-def _cell(value: Any) -> str | int | float | bool | None:
-    if value is None:
-        return None
-    try:
-        if pd.isna(value):
-            return None
-    except (TypeError, ValueError):
-        pass
-    if isinstance(value, bool | int | float | str):
-        return value
-    return str(value)

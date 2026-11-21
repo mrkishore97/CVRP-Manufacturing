@@ -338,6 +338,8 @@ def test_migrated_solve_payload_attaches_the_matrix_and_issue_rows_flatten() -> 
             "field": "tasks.due_at",
             "task_id": "TASK-1",
             "message": "Due date is before ready time.",
+            "section": None,
+            "item_id": None,
         }
     ]
 

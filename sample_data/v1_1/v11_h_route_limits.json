@@ -1,0 +1,141 @@
+{
+  "scenario_id": "V11-H",
+  "name": "Route duration and distance limits",
+  "timezone": "America/Toronto",
+  "planning_horizon": {
+    "start": "2026-12-07T00:00:00",
+    "end": "2026-12-08T00:00:00"
+  },
+  "plant_location_id": "PLANT",
+  "locations": [
+    {
+      "location_id": "PLANT",
+      "name": "Fixture Manufacturing Plant",
+      "address": "100 Fixture Plant Road, Toronto, ON",
+      "latitude": 43.7,
+      "longitude": -79.4
+    },
+    {
+      "location_id": "CUSTOMER_A",
+      "name": "Fixture Customer A",
+      "address": "400 Customer Drive, Scarborough, ON",
+      "latitude": 43.76,
+      "longitude": -79.22
+    },
+    {
+      "location_id": "HUB_B",
+      "name": "Fixture Hub B",
+      "address": "700 Hub Way, Markham, ON",
+      "latitude": 43.85,
+      "longitude": -79.33
+    }
+  ],
+  "vehicles": [
+    {
+      "vehicle_id": "SHORT-DAY",
+      "name": "Short-day truck",
+      "capacity": 12,
+      "enabled": true,
+      "maximum_route_duration_seconds": 9000
+    },
+    {
+      "vehicle_id": "LOCAL",
+      "name": "Local truck",
+      "capacity": 12,
+      "enabled": true,
+      "maximum_route_distance_meters": 60000
+    }
+  ],
+  "vehicle_shifts": [
+    {
+      "shift_id": "SHORT-DAY-20261207",
+      "vehicle_id": "SHORT-DAY",
+      "start": "2026-12-07T07:00:00",
+      "end": "2026-12-07T17:00:00"
+    },
+    {
+      "shift_id": "LOCAL-20261207",
+      "vehicle_id": "LOCAL",
+      "start": "2026-12-07T07:00:00",
+      "end": "2026-12-07T17:00:00"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "TASK-NEAR",
+      "po_number": "PO-H01",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "CUSTOMER_A",
+      "quantity": 5,
+      "ready_at": "2026-12-07T07:00:00",
+      "due_at": "2026-12-07T16:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 1
+    },
+    {
+      "task_id": "TASK-FAR",
+      "po_number": "PO-H02",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "HUB_B",
+      "quantity": 5,
+      "ready_at": "2026-12-07T07:00:00",
+      "due_at": "2026-12-07T16:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 1
+    }
+  ],
+  "planner_defaults": {
+    "pickup_service_minutes": 15,
+    "delivery_service_minutes": 15,
+    "capacity_unit": "pallets"
+  },
+  "routing_matrix": {
+    "location_ids": [
+      "PLANT",
+      "CUSTOMER_A",
+      "HUB_B"
+    ],
+    "distance_meters": [
+      [
+        0,
+        22000,
+        47000
+      ],
+      [
+        21000,
+        0,
+        35000
+      ],
+      [
+        46000,
+        34000,
+        0
+      ]
+    ],
+    "duration_seconds": [
+      [
+        0,
+        1500,
+        3000
+      ],
+      [
+        1400,
+        0,
+        2300
+      ],
+      [
+        2900,
+        2200,
+        0
+      ]
+    ],
+    "source": "deterministic_offline_fixture",
+    "travel_mode": "DRIVE"
+  }
+}

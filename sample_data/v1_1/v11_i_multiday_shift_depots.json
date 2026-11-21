@@ -1,0 +1,325 @@
+{
+  "scenario_id": "V11-I",
+  "name": "Multi-day shifts ending at a hub",
+  "timezone": "America/Toronto",
+  "planning_horizon": {
+    "start": "2026-12-07T00:00:00",
+    "end": "2026-12-10T00:00:00"
+  },
+  "plant_location_id": "PLANT",
+  "locations": [
+    {
+      "location_id": "PLANT",
+      "name": "Fixture Manufacturing Plant",
+      "address": "100 Fixture Plant Road, Toronto, ON",
+      "latitude": 43.7,
+      "longitude": -79.4
+    },
+    {
+      "location_id": "SUPPLIER_A",
+      "name": "Fixture Supplier A",
+      "address": "200 Supplier Avenue, Vaughan, ON",
+      "latitude": 43.82,
+      "longitude": -79.5
+    },
+    {
+      "location_id": "SUPPLIER_B",
+      "name": "Fixture Supplier B",
+      "address": "300 Supplier Street, Mississauga, ON",
+      "latitude": 43.6,
+      "longitude": -79.65
+    },
+    {
+      "location_id": "CUSTOMER_A",
+      "name": "Fixture Customer A",
+      "address": "400 Customer Drive, Scarborough, ON",
+      "latitude": 43.76,
+      "longitude": -79.22
+    },
+    {
+      "location_id": "CUSTOMER_B",
+      "name": "Fixture Customer B",
+      "address": "500 Customer Lane, Oakville, ON",
+      "latitude": 43.47,
+      "longitude": -79.69
+    },
+    {
+      "location_id": "HUB_A",
+      "name": "Fixture Hub A",
+      "address": "600 Hub Court, Brampton, ON",
+      "latitude": 43.73,
+      "longitude": -79.76
+    },
+    {
+      "location_id": "HUB_B",
+      "name": "Fixture Hub B",
+      "address": "700 Hub Way, Markham, ON",
+      "latitude": 43.85,
+      "longitude": -79.33
+    }
+  ],
+  "vehicles": [
+    {
+      "vehicle_id": "TRUCK-1",
+      "name": "Truck 1",
+      "capacity": 12,
+      "enabled": true
+    },
+    {
+      "vehicle_id": "TRUCK-2",
+      "name": "Truck 2",
+      "capacity": 12,
+      "enabled": true
+    }
+  ],
+  "vehicle_shifts": [
+    {
+      "shift_id": "TRUCK-1-20261207",
+      "vehicle_id": "TRUCK-1",
+      "start": "2026-12-07T07:00:00",
+      "end": "2026-12-07T15:00:00",
+      "start_location_id": "PLANT",
+      "end_location_id": "HUB_A"
+    },
+    {
+      "shift_id": "TRUCK-2-20261207",
+      "vehicle_id": "TRUCK-2",
+      "start": "2026-12-07T07:00:00",
+      "end": "2026-12-07T15:00:00"
+    },
+    {
+      "shift_id": "TRUCK-1-20261208",
+      "vehicle_id": "TRUCK-1",
+      "start": "2026-12-08T07:00:00",
+      "end": "2026-12-08T15:00:00",
+      "start_location_id": "PLANT",
+      "end_location_id": "HUB_A"
+    },
+    {
+      "shift_id": "TRUCK-2-20261208",
+      "vehicle_id": "TRUCK-2",
+      "start": "2026-12-08T07:00:00",
+      "end": "2026-12-08T15:00:00"
+    },
+    {
+      "shift_id": "TRUCK-1-20261209",
+      "vehicle_id": "TRUCK-1",
+      "start": "2026-12-09T07:00:00",
+      "end": "2026-12-09T15:00:00",
+      "start_location_id": "PLANT",
+      "end_location_id": "HUB_A"
+    },
+    {
+      "shift_id": "TRUCK-2-20261209",
+      "vehicle_id": "TRUCK-2",
+      "start": "2026-12-09T07:00:00",
+      "end": "2026-12-09T15:00:00"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "TASK-0001",
+      "po_number": "PO-I01",
+      "task_type": "PICKUP",
+      "origin_location_id": "SUPPLIER_A",
+      "destination_location_id": "PLANT",
+      "quantity": 6,
+      "ready_at": "2026-12-07T07:00:00",
+      "due_at": "2026-12-07T14:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 1
+    },
+    {
+      "task_id": "TASK-0002",
+      "po_number": "PO-I02",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "CUSTOMER_B",
+      "quantity": 8,
+      "ready_at": "2026-12-08T07:00:00",
+      "due_at": "2026-12-08T14:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 1
+    },
+    {
+      "task_id": "TASK-0003",
+      "po_number": "PO-I03",
+      "task_type": "PICKUP_DROP",
+      "origin_location_id": "SUPPLIER_B",
+      "destination_location_id": "CUSTOMER_A",
+      "quantity": 5,
+      "ready_at": "2026-12-09T08:00:00",
+      "due_at": "2026-12-09T14:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 1
+    },
+    {
+      "task_id": "TASK-0004",
+      "po_number": "PO-I04",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "HUB_B",
+      "quantity": 4,
+      "ready_at": "2026-12-09T07:00:00",
+      "due_at": "2026-12-09T13:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 1
+    }
+  ],
+  "planner_defaults": {
+    "pickup_service_minutes": 15,
+    "delivery_service_minutes": 15,
+    "capacity_unit": "pallets"
+  },
+  "routing_matrix": {
+    "location_ids": [
+      "PLANT",
+      "SUPPLIER_A",
+      "SUPPLIER_B",
+      "CUSTOMER_A",
+      "CUSTOMER_B",
+      "HUB_A",
+      "HUB_B"
+    ],
+    "distance_meters": [
+      [
+        0,
+        28000,
+        39000,
+        22000,
+        33000,
+        42000,
+        47000
+      ],
+      [
+        27000,
+        0,
+        18000,
+        24000,
+        35000,
+        26000,
+        38000
+      ],
+      [
+        37000,
+        17000,
+        0,
+        32000,
+        19000,
+        24000,
+        17000
+      ],
+      [
+        21000,
+        24000,
+        31000,
+        0,
+        16000,
+        28000,
+        35000
+      ],
+      [
+        32000,
+        35000,
+        19000,
+        15000,
+        0,
+        21000,
+        22000
+      ],
+      [
+        41000,
+        27000,
+        23000,
+        28000,
+        20000,
+        0,
+        12000
+      ],
+      [
+        46000,
+        37000,
+        16000,
+        34000,
+        21000,
+        11000,
+        0
+      ]
+    ],
+    "duration_seconds": [
+      [
+        0,
+        1800,
+        2400,
+        1500,
+        2100,
+        2700,
+        3000
+      ],
+      [
+        1700,
+        0,
+        1200,
+        1600,
+        2200,
+        1800,
+        2400
+      ],
+      [
+        2300,
+        1100,
+        0,
+        2100,
+        1300,
+        1600,
+        1200
+      ],
+      [
+        1400,
+        1600,
+        2000,
+        0,
+        1100,
+        1900,
+        2300
+      ],
+      [
+        2000,
+        2200,
+        1300,
+        1000,
+        0,
+        1400,
+        1500
+      ],
+      [
+        2600,
+        1800,
+        1500,
+        1800,
+        1300,
+        0,
+        900
+      ],
+      [
+        2900,
+        2300,
+        1100,
+        2200,
+        1400,
+        800,
+        0
+      ]
+    ],
+    "source": "deterministic_offline_fixture",
+    "travel_mode": "DRIVE"
+  }
+}

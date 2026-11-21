@@ -400,6 +400,39 @@ class BackendClient:
             timeout=self._timeouts.validate,
         )
 
+    def preview_task_import(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        locations: list[dict[str, str]],
+        plant_location_id: str,
+        timezone: str | None = None,
+        default_pickup_service_minutes: int = 0,
+        default_delivery_service_minutes: int = 0,
+    ) -> ApiResult:
+        """Map task spreadsheet rows through the backend contract; nothing is applied."""
+        payload: dict[str, Any] = {
+            "rows": rows,
+            "locations": locations,
+            "plant_location_id": plant_location_id,
+            "default_pickup_service_minutes": default_pickup_service_minutes,
+            "default_delivery_service_minutes": default_delivery_service_minutes,
+        }
+        if timezone:
+            payload["timezone"] = timezone
+        return self._request(
+            "POST",
+            "/api/v1/imports/tasks/preview",
+            json_payload=payload,
+            timeout=self._timeouts.validate,
+        )
+
+    def import_template(self, kind: str) -> ApiResult:
+        """Columns and an example row for the ``tasks`` or ``locations`` template."""
+        return self._request(
+            "GET", f"/api/v1/imports/templates/{kind}", timeout=self._timeouts.standard
+        )
+
     def _request(
         self,
         method: str,

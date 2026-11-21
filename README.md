@@ -20,7 +20,14 @@ Locations need only a name and an address; nobody types coordinates.
 
 The address-only sample (`sample_data/v1_1/`) shows the whole flow.
 
-Fleet and task forms arrive in the next milestone; until then they are edited in Advanced JSON. The scenario is checked automatically whenever it changes, and the sidebar shows what is current.
+Trucks, shifts, and PO tasks have forms too, so a complete scenario is built and solved without opening JSON:
+
+- **Fleet:** trucks with capacity, tags, and optional route time and distance limits. Shifts can be added one at a time or generated for several days and weekdays at once.
+- **Tasks:** pick the movement (pickup, drop, or pickup-drop) and the plant end fills itself. Each task has a priority from 1 Routine to 5 Critical; it only matters when not everything fits.
+- **Spreadsheet import:** tasks and locations come from CSV or Excel files, with downloadable templates. Locations may be named rather than given by ID. An import applies all rows or none.
+- **Review:** issues are grouped by section, and "Go to" opens the row that needs fixing.
+
+The scenario is checked automatically whenever it changes, and the sidebar shows what is current. Advanced JSON remains available for integrations and troubleshooting.
 
 Google travel times are not stored (decision D6): they are kept for the session only and are left out of saved scenarios and JSON downloads. At start-up the backend removes Google matrices that Version 1.0 cached or saved. Back up `data/route_optimizer.db` first if you want to keep a copy (see [SQLite backup and restore](docs/backup_restore.md)).
 

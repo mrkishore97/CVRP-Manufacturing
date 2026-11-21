@@ -247,7 +247,8 @@ def test_json_with_errors_may_replace_an_invalid_scenario(backend: FakeBackend) 
 
     assert _workspace(app).scenario["scenario_id"] == "INVALID-SCENARIO"
     _go(app, "review")
-    assert any("CAPACITY_EXCEEDED" in str(frame.value) for frame in app.dataframe)
+    # Since V1.1-M4 the Review page lists each issue with a "Go to" button.
+    assert any("CAPACITY_EXCEEDED" in str(element.value) for element in app.markdown)
 
 
 def test_clean_view_hides_and_complete_view_shows_derived_data(backend: FakeBackend) -> None:

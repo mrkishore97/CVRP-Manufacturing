@@ -1,0 +1,161 @@
+{
+  "scenario_id": "V11-F",
+  "name": "Fleet shortage with priorities 1-5",
+  "timezone": "America/Toronto",
+  "planning_horizon": {
+    "start": "2026-12-07T00:00:00",
+    "end": "2026-12-08T00:00:00"
+  },
+  "plant_location_id": "PLANT",
+  "locations": [
+    {
+      "location_id": "PLANT",
+      "name": "Fixture Manufacturing Plant",
+      "address": "100 Fixture Plant Road, Toronto, ON",
+      "latitude": 43.7,
+      "longitude": -79.4
+    },
+    {
+      "location_id": "CUSTOMER_A",
+      "name": "Fixture Customer A",
+      "address": "400 Customer Drive, Scarborough, ON",
+      "latitude": 43.76,
+      "longitude": -79.22
+    }
+  ],
+  "vehicles": [
+    {
+      "vehicle_id": "TRUCK-1",
+      "name": "Truck 1",
+      "capacity": 10,
+      "enabled": true
+    }
+  ],
+  "vehicle_shifts": [
+    {
+      "shift_id": "TRUCK-1-20261207",
+      "vehicle_id": "TRUCK-1",
+      "start": "2026-12-07T07:00:00",
+      "end": "2026-12-07T17:00:00"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "TASK-P1-1",
+      "po_number": "PO-F01",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "CUSTOMER_A",
+      "quantity": 10,
+      "ready_at": "2026-12-07T07:00:00",
+      "due_at": "2026-12-07T10:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 1
+    },
+    {
+      "task_id": "TASK-P2-2",
+      "po_number": "PO-F02",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "CUSTOMER_A",
+      "quantity": 10,
+      "ready_at": "2026-12-07T07:00:00",
+      "due_at": "2026-12-07T10:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 2
+    },
+    {
+      "task_id": "TASK-P3-3",
+      "po_number": "PO-F03",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "CUSTOMER_A",
+      "quantity": 10,
+      "ready_at": "2026-12-07T07:00:00",
+      "due_at": "2026-12-07T10:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 3
+    },
+    {
+      "task_id": "TASK-P4-4",
+      "po_number": "PO-F04",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "CUSTOMER_A",
+      "quantity": 10,
+      "ready_at": "2026-12-07T07:00:00",
+      "due_at": "2026-12-07T10:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 4
+    },
+    {
+      "task_id": "TASK-P5-5",
+      "po_number": "PO-F05",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "CUSTOMER_A",
+      "quantity": 10,
+      "ready_at": "2026-12-07T07:00:00",
+      "due_at": "2026-12-07T10:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 5
+    },
+    {
+      "task_id": "TASK-P1-6",
+      "po_number": "PO-F06",
+      "task_type": "DROP",
+      "origin_location_id": "PLANT",
+      "destination_location_id": "CUSTOMER_A",
+      "quantity": 10,
+      "ready_at": "2026-12-07T07:00:00",
+      "due_at": "2026-12-07T10:00:00",
+      "due_event": "DELIVERY_COMPLETE",
+      "pickup_service_minutes": 15,
+      "delivery_service_minutes": 15,
+      "priority": 1
+    }
+  ],
+  "planner_defaults": {
+    "pickup_service_minutes": 15,
+    "delivery_service_minutes": 15,
+    "capacity_unit": "pallets"
+  },
+  "routing_matrix": {
+    "location_ids": [
+      "PLANT",
+      "CUSTOMER_A"
+    ],
+    "distance_meters": [
+      [
+        0,
+        22000
+      ],
+      [
+        21000,
+        0
+      ]
+    ],
+    "duration_seconds": [
+      [
+        0,
+        1500
+      ],
+      [
+        1400,
+        0
+      ]
+    ],
+    "source": "deterministic_offline_fixture",
+    "travel_mode": "DRIVE"
+  }
+}

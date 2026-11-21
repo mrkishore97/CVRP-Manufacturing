@@ -9,6 +9,8 @@ workflows untestable (plan risk "Navigation change breaks UI testability").
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -27,6 +29,8 @@ from frontend.api_client import (
     BackendUnavailableError,
 )
 from frontend.state.readiness import WorkflowStatus
+from frontend.state.scenario_state import ScenarioEditError
+from frontend.state.units import hmm_to_seconds
 from frontend.state.workspace import Workspace, edit
 
 WORKSPACE_KEY = "workspace"
@@ -135,6 +139,26 @@ def render_flash() -> None:
         "error": st.error,
     }.get(str(flash.get("level")), st.info)
     show(str(flash["message"]))
+
+
+def row_revision(row: Mapping[str, Any] | None) -> str:
+    """A short fingerprint of a row, for edit-form widget keys.
+
+    Keys that change whenever the row changes (from a form, an import, or the JSON
+    view) make the form show the row as it is now instead of stale widget state.
+    """
+    text = json.dumps(row or {}, sort_keys=True, default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:10]
+
+
+def optional_hmm(text: str, label: str) -> int | None:
+    """Seconds from optional ``h:mm`` text; empty means no limit."""
+    if not text.strip():
+        return None
+    try:
+        return hmm_to_seconds(text)
+    except ValueError as exc:
+        raise ScenarioEditError(f"{label}: {exc}") from None
 
 
 def table(rows: Sequence[dict[str, Any]], *, columns: Sequence[str] | None = None) -> None:

@@ -7,7 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from backend.app.domain.enums import PlanStatus, StopKind
-from backend.app.domain.models import PlanningRequest
+from backend.app.domain.models import PlanningRequest, Vehicle, VehicleShift
 from backend.app.domain.results import PlanResult, PlanRoute, PlanStop
 from backend.app.optimization.task_expander import ExpandedTaskNode, expand_tasks
 
@@ -46,6 +46,16 @@ def _matrix_value(
     return matrix[from_index][to_index]
 
 
+def _route_time_allowance_seconds(vehicle: Vehicle, shift: VehicleShift) -> int:
+    """The longest a route may last: the shift, capped by the truck's and shift's limits."""
+    limits = [_seconds_between(shift.start, shift.end)]
+    if vehicle.maximum_route_duration_seconds is not None:
+        limits.append(vehicle.maximum_route_duration_seconds)
+    if shift.maximum_route_duration_seconds is not None:
+        limits.append(shift.maximum_route_duration_seconds)
+    return min(limits)
+
+
 def _task_nodes_by_id(request: PlanningRequest) -> dict[str, ExpandedTaskNode]:
     nodes: dict[str, ExpandedTaskNode] = {}
     for task in expand_tasks(request.tasks, request.plant_location_id):
@@ -80,6 +90,9 @@ def _validate_route(
         return ([f"route {route_key} references unknown shift"], task_positions)
     if shift.vehicle_id != route.vehicle_id:
         issues.append(f"route {route_key} shift belongs to vehicle {shift.vehicle_id}")
+    if not vehicle.enabled:
+        issues.append(f"route {route_key} uses a disabled vehicle")
+    tasks_by_id = {task.task_id: task for task in request.tasks}
 
     stops = route.stops
     if len(stops) < 2:
@@ -149,6 +162,16 @@ def _validate_route(
                     issues.append(f"route {route_key} stop {stop.sequence} task ID is inconsistent")
                 if stop.kind is not node.kind:
                     issues.append(f"route {route_key} stop {stop.sequence} kind is inconsistent")
+                task = tasks_by_id.get(node.task_id)
+                if (
+                    task is not None
+                    and stop.kind is StopKind.PICKUP
+                    and not task.required_vehicle_tags.issubset(vehicle.tags)
+                ):
+                    issues.append(
+                        f"route {route_key} carries task {task.task_id} without its required "
+                        "vehicle tags"
+                    )
                 if stop.location_id != node.location_id:
                     issues.append(
                         f"route {route_key} stop {stop.sequence} location is inconsistent"
@@ -209,6 +232,12 @@ def _validate_route(
         issues.append(f"route {route_key} waiting seconds are inconsistent")
     if route.peak_load != peak_load:
         issues.append(f"route {route_key} peak load is inconsistent")
+    allowance = _route_time_allowance_seconds(vehicle, shift)
+    if _seconds_between(shift.start, stops[-1].arrival_at) > allowance:
+        issues.append(f"route {route_key} lasts longer than its maximum route duration")
+    distance_limit = vehicle.maximum_route_distance_meters
+    if distance_limit is not None and total_distance > distance_limit:
+        issues.append(f"route {route_key} exceeds the vehicle's maximum route distance")
 
     return issues, task_positions
 

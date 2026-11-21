@@ -1,20 +1,48 @@
-"""Review: automatic validation results and normalised task times."""
+"""Review: automatic validation results grouped by section, with links to the rows.
+
+Validation runs whenever the scenario changes (principle 9). Each issue names its
+section and row, and "Go to" opens that row's form on its page (plan §9.6).
+"""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import streamlit as st
 
+from frontend.state.scenario_state import ScenarioEditError
+from frontend.state.settings import fit_period
 from frontend.state.timeutil import format_local
 from frontend.state.workspace import validation_issue_rows
+from frontend.views import fleet, locations, tasks
 from frontend.views.components import (
     AppContext,
+    commit_edit,
     get_workspace,
+    go_to,
     next_step_button,
     table,
 )
 from frontend.views.validation import run_validation
+
+SECTIONS: tuple[tuple[str, str, str], ...] = (
+    # (section, heading, page)
+    ("scenario", "Scenario", "scenario"),
+    ("locations", "Locations", "locations"),
+    ("vehicles", "Trucks", "fleet"),
+    ("vehicle_shifts", "Shifts", "fleet"),
+    ("tasks", "Tasks", "tasks"),
+    ("routing_matrix", "Travel times", "travel_times"),
+    ("", "Other", "json"),
+)
+EDIT_TARGETS: Mapping[str, str] = {
+    "locations": locations.EDIT_NEXT_KEY,
+    "vehicles": fleet.TRUCK_EDIT_NEXT_KEY,
+    "vehicle_shifts": fleet.SHIFT_EDIT_NEXT_KEY,
+    "tasks": tasks.EDIT_NEXT_KEY,
+}
+MAX_LINKED_ISSUES = 40
 
 
 def render(ctx: AppContext) -> None:
@@ -43,8 +71,7 @@ def render(ctx: AppContext) -> None:
     if status.validation_current:
         issues = validation_issue_rows(derived.validation)
         if issues:
-            st.subheader("Issues")
-            table(issues)
+            _render_issues(issues)
         normalized = _normalized_tasks(derived.validation)
         if normalized:
             timezone = str(workspace.scenario.get("timezone", "America/Toronto"))
@@ -66,6 +93,53 @@ def render(ctx: AppContext) -> None:
                 ]
             )
     next_step_button("travel_times", "Next: Travel times")
+
+
+def _render_issues(issues: list[dict[str, Any]]) -> None:
+    st.subheader("Issues")
+    if any(issue.get("code") == "OUTSIDE_PLANNING_HORIZON" for issue in issues):
+        st.caption("Some shifts or tasks fall outside the planning period.")
+        if st.button("Fit the planning period to shifts and tasks", key="review-fit-period"):
+            try:
+                updated = fit_period(get_workspace().scenario)
+            except ScenarioEditError as exc:
+                st.error(str(exc))
+            else:
+                commit_edit(updated, message="The planning period now covers every shift and task.")
+    known = {section for section, _, _ in SECTIONS}
+    for section, heading, page in SECTIONS:
+        grouped = [
+            issue
+            for issue in issues
+            if (issue.get("section") or "") == section
+            or (section == "" and (issue.get("section") or "") not in known)
+        ]
+        if not grouped:
+            continue
+        errors = sum(issue.get("severity") == "ERROR" for issue in grouped)
+        counts = f"{errors} error(s), {len(grouped) - errors} warning(s)"
+        with st.expander(f"{heading}: {counts}", expanded=errors > 0):
+            for index, issue in enumerate(grouped[:MAX_LINKED_ISSUES]):
+                _render_issue(issue, section, page, index)
+            if len(grouped) > MAX_LINKED_ISSUES:
+                st.caption(f"{len(grouped) - MAX_LINKED_ISSUES} more:")
+                table(
+                    grouped[MAX_LINKED_ISSUES:],
+                    columns=("severity", "code", "item_id", "row_number", "field", "message"),
+                )
+
+
+def _render_issue(issue: Mapping[str, Any], section: str, page: str, index: int) -> None:
+    icon = "⛔" if issue.get("severity") == "ERROR" else "⚠️"
+    item_id = issue.get("item_id") or issue.get("task_id")
+    where = f" — {item_id}" if item_id else ""
+    col_text, col_go = st.columns([5, 1])
+    col_text.markdown(f"{icon} **{issue.get('code')}**{where}  \n{issue.get('message')}")
+    if col_go.button("Go to", key=f"review-go-{section or 'other'}-{index}"):
+        target = EDIT_TARGETS.get(section)
+        if target and item_id:
+            st.session_state[target] = str(item_id)
+        go_to(page)
 
 
 def _normalized_tasks(validation: dict[str, Any] | None) -> list[dict[str, Any]]:

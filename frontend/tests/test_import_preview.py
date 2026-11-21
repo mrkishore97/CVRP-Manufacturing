@@ -1,58 +1,69 @@
-"""Frontend import-preview mapping tests."""
+"""Reading spreadsheet files and writing import templates (V1.1-M4).
+
+The frontend no longer maps task columns itself: the backend import contract is the
+only definition (plan §9.5, finding F12). These tests cover what is left here.
+"""
+
+from __future__ import annotations
+
+import io
 
 import pandas as pd
+import pytest
 
-from frontend.import_preview import preview_task_import
+import frontend.import_preview as import_preview
+from frontend.import_preview import read_table_rows, template_csv_bytes, template_xlsx_bytes
 
-
-def test_import_preview_maps_aliases_and_visible_row_errors() -> None:
-    frame = pd.DataFrame(
-        [
-            {
-                "Task ID": "TASK-1",
-                "PO": "PO-1",
-                "Type": "pickup",
-                "Origin": "SUPPLIER_A",
-                "Destination": "PLANT",
-                "Qty": 4,
-                "Ready": "2026-06-22T07:00:00-04:00",
-                "Deadline": "",
-                "Planner Comment": "not a canonical column",
-            }
-        ]
-    )
-
-    preview = preview_task_import(frame)
-
-    assert preview.rows[0]["po_number"] == "PO-1"
-    assert preview.rows[0]["quantity"] == 4
-    issue_rows = preview.issue_rows()
-    assert {(issue["code"], issue["field"], issue["row_number"]) for issue in issue_rows} >= {
-        ("UNKNOWN_COLUMN", None, None),
-        ("MISSING_REQUIRED_VALUE", "due_at", 2),
-    }
-    assert preview.has_blocking_errors
+TEMPLATE = {
+    "kind": "tasks",
+    "columns": [
+        {"name": "po_number", "required": True, "aliases": ["po"], "description": "PO."},
+        {"name": "quantity", "required": True, "aliases": ["qty"], "description": "Load."},
+        {"name": "notes", "required": False, "aliases": [], "description": "Notes."},
+    ],
+    "example_rows": [{"po_number": "PO-1001", "quantity": 12, "notes": "=HYPERLINK(1)"}],
+}
 
 
-def test_import_preview_reports_duplicate_mapped_columns() -> None:
-    frame = pd.DataFrame(
-        [["TASK-1", "PO-1", "PO-DUP", "PICKUP", "SUPPLIER_A", "PLANT", 4, "ready", "due"]],
-        columns=[
-            "task_id",
-            "po",
-            "po_number",
-            "task_type",
-            "origin_location_id",
-            "destination_location_id",
-            "quantity",
-            "ready_at",
-            "due_at",
-        ],
-    )
+def test_the_frontend_has_no_column_alias_table_of_its_own() -> None:
+    names = set(vars(import_preview))
+    assert not {"_HEADER_ALIASES", "REQUIRED_TASK_COLUMNS", "preview_task_import"} & names
 
-    preview = preview_task_import(frame)
 
-    assert any(
-        issue.code == "DUPLICATE_COLUMN" and issue.field == "po_number" for issue in preview.issues
-    )
-    assert preview.has_blocking_errors
+def test_csv_rows_keep_their_own_headers_and_blank_cells_become_none() -> None:
+    content = "PO Number,Qty,Notes\nPO-1,4,\nPO-2,2.5,rush\n".encode("utf-8-sig")
+
+    rows = read_table_rows("tasks.csv", content)
+
+    assert rows == [
+        {"PO Number": "PO-1", "Qty": "4", "Notes": None},
+        {"PO Number": "PO-2", "Qty": "2.5", "Notes": "rush"},
+    ]
+
+
+def test_xlsx_rows_keep_numbers() -> None:
+    buffer = io.BytesIO()
+    pd.DataFrame([{"PO": "PO-1", "Qty": 4}]).to_excel(buffer, index=False)
+
+    rows = read_table_rows("tasks.xlsx", buffer.getvalue())
+
+    assert rows == [{"PO": "PO-1", "Qty": 4}]
+
+
+def test_unreadable_and_empty_files_are_reported() -> None:
+    with pytest.raises(ValueError, match="no rows"):
+        read_table_rows("tasks.csv", b"PO,Qty\n")
+    with pytest.raises(ValueError, match="could not be read"):
+        read_table_rows("tasks.xlsx", b"not a workbook")
+
+
+def test_templates_have_the_backend_columns_and_an_escaped_example_row() -> None:
+    csv_rows = read_table_rows("template.csv", template_csv_bytes(TEMPLATE))
+    assert list(csv_rows[0]) == ["po_number", "quantity", "notes"]
+    assert csv_rows[0]["po_number"] == "PO-1001"
+    assert not str(csv_rows[0]["notes"]).startswith("=")
+
+    workbook = pd.read_excel(io.BytesIO(template_xlsx_bytes(TEMPLATE)), sheet_name=None)
+    assert list(workbook) == ["Template", "Columns"]
+    assert list(workbook["Template"].columns) == ["po_number", "quantity", "notes"]
+    assert workbook["Columns"]["Required"].tolist() == ["Yes", "Yes", "No"]

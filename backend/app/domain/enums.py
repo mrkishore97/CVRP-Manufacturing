@@ -117,3 +117,20 @@ class ValidationCode(StrEnum):
     MATRIX_LOCATION_MISMATCH = "MATRIX_LOCATION_MISMATCH"
     STALE_GEOCODE = "STALE_GEOCODE"
     GEOCODE_EXPIRED = "GEOCODE_EXPIRED"
+    UNKNOWN_FIELD = "UNKNOWN_FIELD"
+    UNUSED_LOCATION = "UNUSED_LOCATION"
+    VEHICLE_WITHOUT_SHIFT = "VEHICLE_WITHOUT_SHIFT"
+    NO_COMPATIBLE_VEHICLE = "NO_COMPATIBLE_VEHICLE"
+    TASK_WINDOW_OUTSIDE_SHIFTS = "TASK_WINDOW_OUTSIDE_SHIFTS"
+    AMBIGUOUS_LOCATION = "AMBIGUOUS_LOCATION"
+
+
+class IssueSection(StrEnum):
+    """Which part of the scenario a validation issue is about, for grouping and links."""
+
+    SCENARIO = "scenario"
+    LOCATIONS = "locations"
+    VEHICLES = "vehicles"
+    VEHICLE_SHIFTS = "vehicle_shifts"
+    TASKS = "tasks"
+    ROUTING_MATRIX = "routing_matrix"

@@ -36,6 +36,9 @@ def _issue_detail(issue: ValidationIssue) -> ApiErrorDetail:
         field=issue.field,
         row_number=issue.row_number,
         task_id=issue.task_id,
+        severity=issue.severity.value,
+        section=issue.section.value if issue.section else None,
+        item_id=issue.item_id,
     )
 
 

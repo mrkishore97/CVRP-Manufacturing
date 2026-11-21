@@ -8,7 +8,7 @@ minutes for new tasks and the label for load quantities.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -155,6 +155,34 @@ def fit_period(scenario: Mapping[str, Any]) -> Scenario:
     updated.pop("horizon", None)
     updated["planning_horizon"] = {"start": fitted[0], "end": fitted[1]}
     return updated
+
+
+def extend_period(scenario: Mapping[str, Any], values: Sequence[str]) -> tuple[Scenario, bool]:
+    """Grow the period to whole local days covering ``values``; it never shrinks.
+
+    Forms call this when they add a shift or task outside the period, so a form never
+    creates the "outside the planning period" error. Returns whether it grew.
+    """
+    timezone = str(scenario.get("timezone") or DEFAULT_TIMEZONE)
+    bounds = period_bounds(scenario)
+    if bounds is None or not values:
+        return deepcopy(dict(scenario)), False
+    try:
+        moments = [_local_moment(value, timezone) for value in values]
+    except ValueError:
+        return deepcopy(dict(scenario)), False
+    start, end = bounds
+    earliest, latest = min(moments), max(moments)
+    if earliest >= start and latest <= end:
+        return deepcopy(dict(scenario)), False
+    updated = deepcopy(dict(scenario))
+    horizon = dict(updated.pop("horizon", None) or updated.get("planning_horizon") or {})
+    if earliest < start:
+        horizon["start"] = wall_clock_text(earliest.date(), time(0, 0))
+    if latest > end:
+        horizon["end"] = wall_clock_text(latest.date() + timedelta(days=1), time(0, 0))
+    updated["planning_horizon"] = horizon
+    return updated, True
 
 
 def plant_location(scenario: Mapping[str, Any]) -> Row | None:

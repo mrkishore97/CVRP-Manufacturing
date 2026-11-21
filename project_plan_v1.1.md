@@ -2,7 +2,7 @@
 
 **Plan revision:** 2 — rewritten from scratch; replaces the obsolete draft dated 2026-07-16  
 **Date:** 2026-11-16  
-**Status:** Decisions D1–D5 settled on 2026-11-16; D6 settled on 2026-11-18 (option a). V1.1-M0 (Build 014), V1.1-M1 (Build 015), V1.1-M2 (Build 016), and V1.1-M3 (Build 017) complete on branch `v1.1`; the M3 live-key manual check is still to run  
+**Status:** Decisions D1–D5 settled on 2026-11-16; D6 settled on 2026-11-18 (option a). V1.1-M0 (Build 014) to V1.1-M4 (Build 018) complete on branch `v1.1`; the M3 live-key manual check is still to run  
 **Baseline:** tag `v1.0.0` (`2d93b2d`) — 143 automated tests passing when re-run on 2026-11-16  
 **Related records:** `project_plan.md` (Version 1.0 plan, stays unchanged), `build_log.md`
 
@@ -165,6 +165,15 @@ As built in M3:
   - `locations.py`: what to resolve, applying results, confirming, import merge, copy.
   - `settings.py`: identity, timezone, period, plant, planner defaults.
 
+As built in M4:
+
+- **New state modules:**
+  - `fleet.py`: trucks, shifts, and the shift generator.
+  - `tasks.py`: movements and their plant end, the task form's rules, filters, immediate warnings, and import apply.
+- **Views.** `fleet` and `tasks` are now forms, and `review` groups issues with "Go to" links. `imports` holds the template downloads shared by Locations and Tasks.
+- **Layout.** Add, Edit, Generate, and Import areas sit in tabs, because Streamlit does not nest expanders. One-off messages are drawn in a container that is always present. Otherwise the page below them would move when a message disappears, and Streamlit would reopen the first tab.
+- **File reading.** `import_preview.py` only reads files and writes templates; its column table is gone (F12).
+
 ### 6.2 Backend additions
 
 ```text
@@ -188,7 +197,7 @@ backend/app/
 | `POST /api/v1/locations/geocode` | Unchanged | Kept for Version 1.0 clients |
 | `POST /api/v1/matrices/estimate` | New | Element count, request count, and whether the cache already has it — before any billable call. M3 adds `cache_enabled`: false for Google, whose matrices are not stored (D6) |
 | `POST /api/v1/matrices/compute` | Unchanged contract | Frontend now also sends routing options. M3 adds `cache_enabled`; a Google matrix is never cached (D6) |
-| `POST /api/v1/plans/validate` | Additive | Accepts `optimization_options` / `routing_options`; new warnings (§9.6) |
+| `POST /api/v1/plans/validate` | Additive | Accepts `optimization_options` / `routing_options`; new warnings (§9.6). M4: every issue carries `section` and `item_id`; the details of a rejected payload carry `severity`, `section`, and `item_id` |
 | `POST /api/v1/plans/solve` | Additive | Honours options; unique plan ID; runs off the event loop |
 | `GET /api/v1/scenarios` | New (M3) | List saved scenarios (ID, name, updated, counts) |
 | `POST /api/v1/scenarios` | Additive | `?if_exists=error` returns 409 instead of overwriting; default stays "replace" (M6). Since M3, POST and PUT drop an embedded Google matrix and report `routing_matrix_dropped` (D6) |
@@ -196,6 +205,7 @@ backend/app/
 | `PUT/GET/DELETE /api/v1/scenarios/{id}/draft` | New | Refresh-safe working copy (§11.3) |
 | `GET /api/v1/scenarios/{id}/plans` | New | Plan history for comparison |
 | `POST /api/v1/imports/tasks/preview`, `/imports/locations/preview` | New | One import contract, owned by the backend. Locations in M3, tasks in M4 |
+| `GET /api/v1/imports/templates/{kind}` | New (M4) | Columns, aliases, and an example row for the `tasks` and `locations` templates |
 | `GET /api/v1/config` | New | Non-secret settings the UI needs: default timezone, whether a Google key is configured, limits, region code |
 | `GET /api/v1/health` | Fix | Reports the real version |
 
@@ -452,6 +462,14 @@ Shifts: vehicle, date, start time, end time, start location, end location (both 
 
 **Shift generator:** choose vehicles, a date range, weekdays, and start/end times → preview the shifts with their IDs, overlaps and already-existing shifts flagged → apply. Building two weeks for three trucks takes one form instead of thirty.
 
+As built in M4:
+
+- **Trucks.** Tags are typed comma-separated. Clearing a limit removes it.
+- **Shift times.** An end time at or before the start time ends on the next day.
+- **Copying a shift.** "Copy to the next day" is the shift Duplicate.
+- **Generator.** It also sets the start and end location and an optional route-time limit. A shift is "already exists" when the truck has one with the same start and end. Only new shifts are added, all or none.
+- **Planning period.** Adding shifts or tasks outside the period extends it to whole days, and the message says so. Forms therefore never create the "outside the planning period" error. The period never shrinks on its own.
+
 ### 9.4 Tasks
 
 | Field | Control | Notes |
@@ -469,6 +487,12 @@ Shifts: vehicle, date, start time, end time, start location, end location (both 
 
 The task table filters by movement, location, and priority. Duplicate is one click — the same lane with a new PO is the commonest entry.
 
+As built in M4:
+
+- **Movement.** It is chosen above the form so the form changes at once. The plant end is shown as a disabled picker holding the plant; the other ends offer every location except the plant.
+- **Duplicate.** It copies the lane, times, and load with a new ID, and marks the PO number "(copy)" for the planner to replace.
+- **Immediate warnings.** No enabled truck has the required tags, or none that has them can carry the quantity. They appear after Add and Save and above the edit form.
+
 ### 9.5 Import
 
 - **Tasks:** upload CSV/XLSX → the backend maps columns and returns canonical rows with row-level issues → choose Append, Update matching task IDs, or Replace all → apply. Application is all-or-nothing; a failed import changes nothing.
@@ -477,11 +501,29 @@ The task table filters by movement, location, and priority. Duplicate is one cli
 - **Templates:** downloadable CSV/XLSX templates with headers and one example row.
 - The frontend alias table is deleted; the backend import contract becomes the only definition.
 
+As built in M4:
+
+- **Task preview.** `POST /imports/tasks/preview` receives the file's rows with the scenario's locations, plant, timezone, and default service minutes. Headers map through the same table as JSON validation.
+- **What a spreadsheet may leave out.** `task_id` may be empty; new tasks are numbered. The plant end of a pickup or drop may be empty. Priority accepts 1–5 or the label.
+- **Location cells.** They match a location ID, then a unique name, ignoring case and spacing. A name shared by two locations is a row error.
+- **Times.** Local times are checked for daylight-saving gaps. Every row error blocks the import.
+- **Apply.** Append refuses an ID that already exists; Update replaces matching IDs and adds the rest; Replace makes the file the whole task list. The app applies a valid preview all-or-nothing.
+- **Templates.** `GET /imports/templates/{tasks|locations}` serves the columns, aliases, and an example row. The app writes them as CSV, or as Excel with a sheet explaining every column.
+- **Not covered by automated tests.** `AppTest` cannot upload files, so the upload widget itself was checked in the browser; the steps after it are covered.
+
 ### 9.6 Review
 
 Validation runs automatically when inputs change (principle 9). The page shows issues grouped by scenario, locations, fleet, shifts, and tasks, each with a "Go to" link to the offending row, plus normalised local/UTC times.
 
 New non-blocking warnings, all computed by the backend: `UNKNOWN_FIELD`, `UNUSED_LOCATION`, `VEHICLE_WITHOUT_SHIFT`, `TASK_WINDOW_OUTSIDE_SHIFTS` (a task's ready–due window overlaps no shift of a compatible truck, so it cannot be served), `STALE_GEOCODE`, `GEOCODE_EXPIRED`.
+
+As built in M4:
+
+- **Another warning.** `NO_COMPATIBLE_VEHICLE` covers tags no enabled truck has, or a quantity only too-small tagged trucks could carry. It is a warning so that Version 1.0 payloads stay valid.
+- **Clearer errors.** Overlapping shifts (`SHIFT_OVERLAP`) and shifts outside the period (`OUTSIDE_PLANNING_HORIZON`) are now named per shift. They used to be one generic error, and validity is unchanged.
+- **Grouping and links.** Every issue names its section and row, so Review groups them (Scenario, Locations, Trucks, Shifts, Tasks, Travel times). "Go to" opens the row's form.
+- **Fit the period.** When something is outside the planning period, Review offers "Fit the planning period to shifts and tasks".
+- **Known fields.** `description` is accepted as a known top-level field. The canonical test fixtures' metadata keys are reported as `UNKNOWN_FIELD`, as intended.
 
 ### 9.7 Optimize
 
@@ -543,9 +585,20 @@ Performance: travel-time and distance lookups are precomputed and registered as 
 
 Weights are checked to stay far above any routing cost and far below overflow at the configured size limits.
 
+As built in M4:
+
+- **Penalty.** Leaving out one task node costs `dropped_task_penalty` × the task's weight (`domain/options.py`). With every priority at 1, the model is exactly Version 1.0's.
+- **Diagnostics.** Every task diagnostic carries `priority`. The code `INSUFFICIENT_COMBINED_FLEET_TIME` is kept for existing consumers.
+- **Proof.** In fixture V11-F only two of six identical POs fit; priorities 5 and 4 are kept.
+
 ### 10.5 Route-distance limit
 
 A `RouteDistance` dimension with per-vehicle limits makes the existing field real. The per-task pre-check gains a distance test, so a task no truck can reach within its limit is reported individually as `ROUTE_DISTANCE_LIMIT_EXCEEDED` rather than as a generic fleet shortage.
+
+As built in M4:
+
+- **When the dimension is added.** Only when at least one active truck has a limit, so scenarios without one are solved by the Version 1.0 model.
+- **Per-task check.** `ROUTE_DISTANCE_LIMIT_EXCEEDED` is reported when some truck could do the task alone, in time and within its shift, but only by exceeding its distance limit.
 
 ### 10.6 Travel-time buffer
 
@@ -554,6 +607,11 @@ Google's driving times are for cars. `travel_time_factor` (1.00–2.00) scales m
 ### 10.7 Independent validator
 
 Added re-checks: vehicle tags satisfy task requirements; route duration within vehicle and shift limits; route distance within the vehicle limit. The existing corrupted-plan tests gain one case per new check.
+
+As built in M4:
+
+- **Route duration** is measured from the shift start to the arrival at the end depot, waiting included, which matches the solver's `Time` dimension.
+- **Disabled trucks.** A route on a disabled truck is also rejected.
 
 ### 10.8 Plan identity and metadata
 
@@ -674,7 +732,7 @@ Eight milestones. The two must-have outcomes land in M3 (address-only) and M4 (f
 | V1.1-M1 | Backend address resolution | M | Complete |
 | V1.1-M2 | Frontend foundation; JSON workflow on the new state model | M | Complete |
 | V1.1-M3 | Scenario, plant, locations, travel times — address-only end to end | M | Complete (live-key manual check outstanding) |
-| V1.1-M4 | Fleet, shifts, tasks, import, review — forms complete | L | Pending |
+| V1.1-M4 | Fleet, shifts, tasks, import, review — forms complete | L | Complete |
 | V1.1-M5 | Optimization options and Optimize page | M | Pending |
 | V1.1-M6 | Results, plan history, scenario management, exports | M | Pending |
 | V1.1-M7 | Hardening, documentation, release | S | Pending |
@@ -777,6 +835,11 @@ Status (Build 017): automated checks pass. The gate is shown end to end through 
 
 **Gate:** a complete scenario is built and solved without opening JSON. **Must-have M-1 delivered.**
 
+Status (Build 018): automated checks pass.
+
+- **Gate test.** It starts from an empty scenario and drives the real app and backend, with the offline provider, to a feasible plan. The Advanced JSON page is never opened.
+- **Manual run.** In the browser with the offline provider: three trucks, two days of generated shifts, mixed tasks through forms, a spreadsheet import, an edit of an imported row, and a feasible solve.
+
 ### V1.1-M5 — Optimization options
 
 **Deliverables:** `optimization_options` contract and bounds; objective modes; search effort; travel-time buffer; precomputed transit matrices; off-event-loop solving; unique plan IDs, history, and metadata; Optimize page.
@@ -816,7 +879,7 @@ Status (Build 017): automated checks pass. The gate is shown end to end through 
 
 ## 15. Test fixtures
 
-Version 1.0 fixtures A–H stay unchanged. New fixtures live in `sample_data/v1_1/`.
+Version 1.0 fixtures A–H stay unchanged. New fixtures live in `sample_data/v1_1/`. V11-A was added in M3, and V11-F to V11-I in M4. They reuse the canonical locations and travel times, trimmed to the locations each uses, so they solve offline.
 
 | Fixture | Content | Proves |
 |---|---|---|
@@ -968,9 +1031,9 @@ Nothing requested was dropped. Bulk grid editing, incremental matrix refresh, a 
 
 ## 21. Immediate next step
 
-V1.1-M0 (Build 014), V1.1-M1 (Build 015), V1.1-M2 (Build 016), and V1.1-M3 (Build 017) are complete on branch `v1.1`.
+V1.1-M0 (Build 014) to V1.1-M4 (Build 018) are complete on branch `v1.1`. Both must-have outcomes are delivered: address-only locations (M3) and forms for every input (M4).
 
 Next:
 
 - The M3 live-key manual check, once there is a go-ahead for billable Google calls.
-- **V1.1-M4**: fleet, shifts, tasks, import, and review, so a scenario is built and solved without JSON.
+- **V1.1-M5**: optimization options and the Optimize page.

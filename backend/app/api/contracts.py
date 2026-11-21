@@ -9,16 +9,19 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.app.application.location_service import LocationResolution
 from backend.app.domain.enums import (
+    DueEvent,
     GeocodeLocationType,
     GeocodeReasonCode,
     GeocodeStatus,
     RoutingPreference,
+    TaskType,
     TravelMode,
 )
 from backend.app.domain.geocoding import normalize_region_code
 from backend.app.domain.location_import import ImportedLocation
 from backend.app.domain.models import RoutingMatrix, ensure_aware_utc
 from backend.app.domain.results import PlanResult, ValidationIssue, ValidationResult
+from backend.app.domain.task_import import ImportedTask, ImportTemplate
 from backend.app.persistence.scenario_repository import ScenarioSummary
 from backend.app.routing.base import RoutingLocation, RoutingOptions
 
@@ -35,6 +38,12 @@ class ApiErrorDetail(BaseModel):
     field: str | None = None
     row_number: int | None = None
     task_id: str | None = None
+    severity: str | None = Field(
+        default=None,
+        description="ERROR or WARNING for validation details (added in V1.1-M4).",
+    )
+    section: str | None = None
+    item_id: str | None = None
 
 
 class ApiErrorResponse(BaseModel):
@@ -486,6 +495,132 @@ class LocationImportPreviewResponse(BaseModel):
     issues: tuple[ValidationIssue, ...]
     column_mapping: dict[str, str]
     unknown_columns: tuple[str, ...]
+
+
+class ImportLocationRefPayload(BaseModel):
+    """A scenario location a spreadsheet cell may name, by ID or by exact name."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    location_id: str = Field(min_length=1, max_length=120)
+    name: str = Field(min_length=1, max_length=500)
+
+
+class TaskImportPreviewRequest(BaseModel):
+    """Rows read from a task spreadsheet, keyed by the file's own headers.
+
+    The scenario's locations let cells name a location by ID or exact name; the plant
+    fills the empty plant end of a pickup or drop. ``timezone`` lets local times be
+    checked for daylight-saving gaps; the defaults fill empty service-minute cells.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    rows: tuple[dict[str, str | int | float | bool | None], ...] = Field(
+        min_length=1, max_length=5_000
+    )
+    locations: tuple[ImportLocationRefPayload, ...] = Field(default=(), max_length=5_000)
+    plant_location_id: str = Field(min_length=1, max_length=120)
+    timezone: str | None = Field(default=None, min_length=1, max_length=100)
+    default_pickup_service_minutes: int = Field(default=0, ge=0, le=1_440)
+    default_delivery_service_minutes: int = Field(default=0, ge=0, le=1_440)
+
+
+class ImportedTaskPayload(BaseModel):
+    """One canonical task row, in the planning-payload shape plus its row number."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    row_number: int
+    task_id: str | None
+    po_number: str
+    task_type: TaskType
+    origin_location_id: str
+    destination_location_id: str
+    quantity: int | float
+    ready_at: str
+    due_at: str
+    due_event: DueEvent
+    pickup_service_minutes: int
+    delivery_service_minutes: int
+    priority: int
+    required_vehicle_tags: tuple[str, ...]
+    notes: str | None
+
+    @classmethod
+    def from_domain(cls, row: ImportedTask) -> ImportedTaskPayload:
+        quantity = (
+            int(row.quantity)
+            if row.quantity == row.quantity.to_integral_value()
+            else float(row.quantity)
+        )
+        return cls(
+            row_number=row.row_number,
+            task_id=row.task_id,
+            po_number=row.po_number,
+            task_type=row.task_type,
+            origin_location_id=row.origin_location_id,
+            destination_location_id=row.destination_location_id,
+            quantity=quantity,
+            ready_at=row.ready_at,
+            due_at=row.due_at,
+            due_event=row.due_event,
+            pickup_service_minutes=row.pickup_service_minutes,
+            delivery_service_minutes=row.delivery_service_minutes,
+            priority=row.priority,
+            required_vehicle_tags=row.required_vehicle_tags,
+            notes=row.notes,
+        )
+
+
+class TaskImportPreviewResponse(BaseModel):
+    """Mapped rows and issues; the app applies the import only if ``valid``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    valid: bool
+    rows: tuple[ImportedTaskPayload, ...]
+    issues: tuple[ValidationIssue, ...]
+    column_mapping: dict[str, str]
+    unknown_columns: tuple[str, ...]
+
+
+class ImportColumnPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    required: bool
+    aliases: tuple[str, ...]
+    description: str
+
+
+class ImportTemplateResponse(BaseModel):
+    """Columns and an example row for a downloadable import template."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    kind: str
+    columns: tuple[ImportColumnPayload, ...]
+    example_rows: tuple[dict[str, str | int], ...]
+
+    @classmethod
+    def from_domain(cls, template: ImportTemplate, request_id: str) -> ImportTemplateResponse:
+        return cls(
+            request_id=request_id,
+            kind=template.kind,
+            columns=tuple(
+                ImportColumnPayload(
+                    name=column.name,
+                    required=column.required,
+                    aliases=column.aliases,
+                    description=column.description,
+                )
+                for column in template.columns
+            ),
+            example_rows=tuple(dict(row) for row in template.example_rows),
+        )
 
 
 class PlanResponse(BaseModel):
