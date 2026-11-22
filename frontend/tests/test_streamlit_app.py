@@ -169,7 +169,8 @@ def test_sample_uses_its_travel_times_and_solves(backend: FakeBackend) -> None:
     _click(app, "Solve route plan")
 
     assert [header.value for header in app.header] == ["Results"]
-    assert any(m.label == "Plan status" and m.value == "FEASIBLE" for m in app.metric)
+    # V1.1-M6: the status is said in plain words instead of the backend's code.
+    assert any("Every PO is planned" in success.value for success in app.success)
     assert "routing_matrix" in backend.solve_calls[0]
     assert backend.matrix_calls == []
     # Coordinates supplied in JSON keep the OpenStreetMap preview (decision D1).

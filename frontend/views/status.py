@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import streamlit as st
 
+from frontend.state.drafts import DraftRecord
 from frontend.state.readiness import USABLE_READINESS
 from frontend.views.components import AppContext, get_workspace
+from frontend.views.session import DRAFT_ERROR_KEY, DRAFT_RECORD_KEY
 
 
 def render_status(ctx: AppContext) -> None:
@@ -28,7 +30,14 @@ def render_status(ctx: AppContext) -> None:
 
     name = scenario.get("name")
     st.markdown(f"**{scenario.get('scenario_id', 'Scenario')}**" + (f" — {name}" if name else ""))
-    st.caption("✏️ Unsaved edits" if status.unsaved_edits else "No unsaved edits")
+    if status.unsaved_edits:
+        kept = isinstance(st.session_state.get(DRAFT_RECORD_KEY), DraftRecord)
+        st.caption("✏️ Unsaved edits" + (" · kept if the page reloads" if kept else ""))
+    else:
+        st.caption("No unsaved edits")
+    draft_error = st.session_state.get(DRAFT_ERROR_KEY)
+    if draft_error:
+        st.caption(f"⚠️ Unsaved edits could not be kept for a reload: {draft_error}")
 
     if status.validation_current:
         if status.validation_valid:

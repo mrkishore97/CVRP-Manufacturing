@@ -9,6 +9,7 @@ from backend.app.config import Settings
 from backend.app.optimization.solver import OrToolsCapacitySolver, SolverConfig
 from backend.app.persistence import (
     SQLiteDatabase,
+    SQLiteDraftRepository,
     SQLiteGeocodeCache,
     SQLiteMatrixCache,
     SQLitePlanRepository,
@@ -67,6 +68,14 @@ def get_plan_repository(database: DatabaseDependency) -> SQLitePlanRepository:
 
 
 PlanRepositoryDependency = Annotated[SQLitePlanRepository, Depends(get_plan_repository)]
+
+
+def get_draft_repository(database: DatabaseDependency) -> SQLiteDraftRepository:
+    """Return the scenario-draft repository for this request."""
+    return SQLiteDraftRepository(database)
+
+
+DraftRepositoryDependency = Annotated[SQLiteDraftRepository, Depends(get_draft_repository)]
 
 
 def get_routing_provider(request: Request, settings: SettingsDependency) -> RoutingProvider:

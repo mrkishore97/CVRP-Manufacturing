@@ -419,6 +419,60 @@ class ScenarioResponse(BaseModel):
         default=False,
         description="True when an embedded Google matrix was not stored (decision D6).",
     )
+    expired_coordinates_removed: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Locations whose coordinates were older than the 30-day limit and were removed "
+            "when the scenario was loaded (V1.1-M6)."
+        ),
+    )
+
+
+class ScenarioDeleteResponse(BaseModel):
+    """What deleting a saved scenario removed (V1.1-M6)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    scenario_id: str
+    plans_removed: int
+    draft_removed: bool
+
+
+class DraftRequest(BaseModel):
+    """The working copy to keep: the scenario document plus small app context.
+
+    ``payload`` is a planning payload whose ``scenario_id`` matches the path. An
+    embedded Google matrix is dropped (decision D6); ``meta`` may describe it instead.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    payload: JsonObject
+    meta: JsonObject = Field(default_factory=dict)
+
+
+class DraftResponse(BaseModel):
+    """A stored draft (V1.1-M6)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    scenario_id: str
+    payload: JsonObject
+    meta: JsonObject
+    updated_at: datetime
+    routing_matrix_dropped: bool = False
+    expired_coordinates_removed: int = 0
+
+
+class DraftDeleteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    scenario_id: str
+    deleted: bool
 
 
 class ScenarioSummaryPayload(BaseModel):
@@ -434,9 +488,12 @@ class ScenarioSummaryPayload(BaseModel):
     vehicle_count: int
     shift_count: int
     task_count: int
+    plan_count: int = Field(default=0, description="Stored plans (V1.1-M6).")
 
     @classmethod
-    def from_domain(cls, summary: ScenarioSummary) -> ScenarioSummaryPayload:
+    def from_domain(
+        cls, summary: ScenarioSummary, *, plan_count: int = 0
+    ) -> ScenarioSummaryPayload:
         return cls(
             scenario_id=summary.scenario_id,
             name=summary.name,
@@ -446,6 +503,7 @@ class ScenarioSummaryPayload(BaseModel):
             vehicle_count=summary.vehicle_count,
             shift_count=summary.shift_count,
             task_count=summary.task_count,
+            plan_count=plan_count,
         )
 
 
@@ -654,6 +712,14 @@ class PlanSummaryPayload(BaseModel):
     longest_route_seconds: int | None
     scheduled_count: int
     unscheduled_count: int
+    # Added in V1.1-M6 for plan comparison.
+    time_limit_seconds: int | None = None
+    balance_strength: str | None = None
+    extra_truck_cost_km: int | None = None
+    truck_shifts_available: int | None = None
+    longest_working_seconds: int | None = None
+    total_driving_seconds: int = 0
+    input_fingerprint: str | None = None
 
     @classmethod
     def from_plan(cls, plan: PlanResult, stored_at: datetime) -> PlanSummaryPayload:
@@ -671,6 +737,13 @@ class PlanSummaryPayload(BaseModel):
             longest_route_seconds=metrics.longest_route_seconds if metrics else None,
             scheduled_count=len(plan.scheduled_task_ids),
             unscheduled_count=len(plan.unscheduled_task_ids),
+            time_limit_seconds=options.time_limit_seconds if options else None,
+            balance_strength=options.balance_strength.value if options else None,
+            extra_truck_cost_km=options.extra_truck_cost_km if options else None,
+            truck_shifts_available=metrics.truck_shifts_available if metrics else None,
+            longest_working_seconds=metrics.longest_working_seconds if metrics else None,
+            total_driving_seconds=plan.total_driving_seconds,
+            input_fingerprint=plan.input_fingerprint,
         )
 
 

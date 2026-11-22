@@ -29,6 +29,7 @@ from frontend.api_client import (
     BackendUnavailableError,
 )
 from frontend.state.readiness import WorkflowStatus
+from frontend.state.results import google_attribution
 from frontend.state.scenario_state import ScenarioEditError
 from frontend.state.units import hmm_to_seconds
 from frontend.state.workspace import Workspace, edit
@@ -166,6 +167,19 @@ def table(rows: Sequence[dict[str, Any]], *, columns: Sequence[str] | None = Non
     if columns is not None and not frame.empty:
         frame = frame[[column for column in columns if column in frame.columns]]
     st.dataframe(frame, hide_index=True, use_container_width=True)
+
+
+def render_google_attribution(
+    ctx: AppContext, *, addresses: bool = False, travel_times: bool = False
+) -> None:
+    """Credit Google wherever its addresses or travel times are shown off a Google map."""
+    text = google_attribution(
+        addresses=addresses,
+        travel_times=travel_times,
+        google_configured=bool(ctx.config and ctx.config.google_maps_configured),
+    )
+    if text:
+        st.caption(text)
 
 
 def render_backend_error(error: BackendClientError) -> None:

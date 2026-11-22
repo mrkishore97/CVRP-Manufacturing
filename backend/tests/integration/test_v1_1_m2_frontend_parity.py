@@ -23,6 +23,7 @@ from backend.app.config import Settings
 from backend.app.domain.geocoding import address_fingerprint
 from frontend import api_client
 from frontend.state.readiness import geocode_fingerprint
+from frontend.state.results import STATUS_TEXT
 from frontend.state.workspace import Workspace
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -112,7 +113,10 @@ def test_version_1_0_payload_loads_validates_uses_its_matrix_and_solves_identica
     }
     expected = {key: value for key, value in EXPECTED[letter].items() if key != "http_status"}
     assert observed == expected
-    assert any(m.label == "Plan status" and m.value == expected["status"] for m in app.metric)
+    # V1.1-M6: the Results page says the status in plain words.
+    sentence = STATUS_TEXT[expected["status"]][1]
+    shown = [element.value for group in (app.success, app.warning, app.error) for element in group]
+    assert sentence in shown
 
 
 def test_version_1_0_payload_b_is_refused_over_a_valid_scenario(app: AppTest) -> None:

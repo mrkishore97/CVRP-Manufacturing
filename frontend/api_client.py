@@ -5,8 +5,14 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 import httpx
+
+
+def _segment(value: str) -> str:
+    """One URL path segment; IDs are plain, but nothing may change the path."""
+    return quote(str(value), safe="")
 
 
 class BackendClientError(RuntimeError):
@@ -372,7 +378,9 @@ class BackendClient:
 
     def get_plan(self, plan_id: str) -> WorkflowResponse:
         """Retrieve a saved backend plan."""
-        result = self._request("GET", f"/api/v1/plans/{plan_id}", timeout=self._timeouts.standard)
+        result = self._request(
+            "GET", f"/api/v1/plans/{_segment(plan_id)}", timeout=self._timeouts.standard
+        )
         return WorkflowResponse(
             raw=result.payload,
             request_id=result.request_id,
@@ -385,17 +393,72 @@ class BackendClient:
             "GET", f"/api/v1/plans/{plan_id}/export", timeout=self._timeouts.standard
         )
 
-    def save_scenario(self, payload: dict[str, Any]) -> ApiResult:
-        """Create or replace a scenario using the payload's scenario_id."""
-        return self._request(
-            "POST", "/api/v1/scenarios", json_payload=payload, timeout=self._timeouts.standard
-        )
+    def save_scenario(self, payload: dict[str, Any], *, overwrite: bool = True) -> ApiResult:
+        """Save under the payload's scenario_id.
+
+        With ``overwrite=False`` an existing saved scenario is never replaced: the
+        backend answers 409 ``SCENARIO_EXISTS`` instead.
+        """
+        path = "/api/v1/scenarios" if overwrite else "/api/v1/scenarios?if_exists=error"
+        return self._request("POST", path, json_payload=payload, timeout=self._timeouts.standard)
 
     def load_scenario(self, scenario_id: str) -> ApiResult:
         """Retrieve a saved scenario payload."""
         return self._request(
-            "GET", f"/api/v1/scenarios/{scenario_id}", timeout=self._timeouts.standard
+            "GET", f"/api/v1/scenarios/{_segment(scenario_id)}", timeout=self._timeouts.standard
         )
+
+    def delete_scenario(self, scenario_id: str) -> ApiResult:
+        """Delete a saved scenario with its stored plans and draft."""
+        return self._request(
+            "DELETE",
+            f"/api/v1/scenarios/{_segment(scenario_id)}",
+            timeout=self._timeouts.standard,
+        )
+
+    def put_draft(
+        self, scenario_id: str, payload: dict[str, Any], meta: dict[str, Any]
+    ) -> ApiResult:
+        """Keep the working copy of a scenario; the saved scenario is not changed."""
+        return self._request(
+            "PUT",
+            f"/api/v1/scenarios/{_segment(scenario_id)}/draft",
+            json_payload={"payload": payload, "meta": meta},
+            timeout=self._timeouts.standard,
+        )
+
+    def get_draft(self, scenario_id: str) -> dict[str, Any] | None:
+        """The kept working copy, or ``None`` when there is none."""
+        try:
+            result = self._request(
+                "GET",
+                f"/api/v1/scenarios/{_segment(scenario_id)}/draft",
+                timeout=self._timeouts.standard,
+            )
+        except BackendApiError as exc:
+            if exc.status_code == 404:
+                return None
+            raise
+        return result.payload
+
+    def delete_draft(self, scenario_id: str) -> ApiResult:
+        return self._request(
+            "DELETE",
+            f"/api/v1/scenarios/{_segment(scenario_id)}/draft",
+            timeout=self._timeouts.standard,
+        )
+
+    def plan_history(self, scenario_id: str) -> list[dict[str, Any]]:
+        """The scenario's stored plans with their settings and figures, newest first."""
+        payload = self._request(
+            "GET",
+            f"/api/v1/scenarios/{_segment(scenario_id)}/plans",
+            timeout=self._timeouts.standard,
+        ).payload
+        plans = payload.get("plans")
+        if not isinstance(plans, list):
+            raise BackendResponseError("Plan history response did not contain a list.")
+        return [plan for plan in plans if isinstance(plan, dict)]
 
     def list_scenarios(self) -> list[dict[str, Any]]:
         """Saved scenarios (ID, name, updated, row counts), most recently updated first."""

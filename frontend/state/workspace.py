@@ -59,6 +59,12 @@ class Derived:
     plan_request_id: str | None = None
     baseline_fingerprint: str | None = None
     loaded_from: str | None = None
+    saved_scenario_id: str | None = None
+    """The saved scenario this session opened or last saved, if any (V1.1-M6).
+
+    Saving under this ID replaces it; saving under any other ID that is already saved
+    asks first (the overwrite guard).
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,13 +73,19 @@ class Workspace:
     derived: Derived = field(default_factory=Derived)
 
 
-def load_document(document: Mapping[str, Any], *, source: str) -> Workspace:
-    """Start from a JSON document; a matching embedded matrix becomes the active one."""
+def load_document(
+    document: Mapping[str, Any], *, source: str, saved_id: str | None = None
+) -> Workspace:
+    """Start from a JSON document; a matching embedded matrix becomes the active one.
+
+    ``saved_id`` is given when the document is a saved scenario opened from the backend.
+    """
     scenario, matrix = split_document(document)
     derived = Derived(
         embedded_matrix=matrix,
         baseline_fingerprint=saved_fingerprint(scenario),
         loaded_from=source,
+        saved_scenario_id=saved_id,
     )
     workspace = Workspace(scenario=scenario, derived=derived)
     if matrix is not None and matrix_matches_locations(matrix, scenario):
@@ -354,20 +366,37 @@ def record_plan(
     return updated
 
 
-def mark_saved(workspace: Workspace, *, source: str | None = None) -> Workspace:
+def mark_saved(
+    workspace: Workspace, *, source: str | None = None, saved_id: str | None = None
+) -> Workspace:
     return replace(
         workspace,
         derived=replace(
             workspace.derived,
             baseline_fingerprint=saved_fingerprint(workspace.scenario),
             loaded_from=source or workspace.derived.loaded_from,
+            saved_scenario_id=saved_id or workspace.derived.saved_scenario_id,
         ),
+    )
+
+
+def mark_unsaved(workspace: Workspace) -> Workspace:
+    """After its saved copy was deleted: nothing is saved any more."""
+    return replace(
+        workspace,
+        derived=replace(workspace.derived, baseline_fingerprint=None, saved_scenario_id=None),
     )
 
 
 def has_unsaved_edits(workspace: Workspace) -> bool:
     """Whether the scenario changed since it was last loaded or saved."""
     return workspace.derived.baseline_fingerprint != saved_fingerprint(workspace.scenario)
+
+
+def save_replaces_own_copy(workspace: Workspace) -> bool:
+    """Whether "Save" would replace the saved scenario this session opened or saved."""
+    scenario_id = str(workspace.scenario.get("scenario_id") or "").strip()
+    return bool(scenario_id) and scenario_id == workspace.derived.saved_scenario_id
 
 
 def matrix_matches_locations(matrix: Mapping[str, Any], scenario: Mapping[str, Any]) -> bool:

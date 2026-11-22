@@ -2,7 +2,7 @@
 
 **Plan revision:** 2 — rewritten from scratch; replaces the obsolete draft dated 2026-07-16  
 **Date:** 2026-11-16  
-**Status:** Decisions D1–D5 settled on 2026-11-16; D6 settled on 2026-11-18 (option a). V1.1-M0 (Build 014) to V1.1-M5 (Build 019) complete on branch `v1.1`; the M3 live-key manual check is still to run  
+**Status:** Decisions D1–D5 settled on 2026-11-16; D6 settled on 2026-11-18 (option a). V1.1-M0 (Build 014) to V1.1-M6 (Build 020) complete on branch `v1.1`; the M3 live-key manual check is still to run  
 **Baseline:** tag `v1.0.0` (`2d93b2d`) — 143 automated tests passing when re-run on 2026-11-16  
 **Related records:** `project_plan.md` (Version 1.0 plan, stays unchanged), `build_log.md`
 
@@ -199,11 +199,11 @@ backend/app/
 | `POST /api/v1/matrices/compute` | Unchanged contract | Frontend now also sends routing options. M3 adds `cache_enabled`; a Google matrix is never cached (D6) |
 | `POST /api/v1/plans/validate` | Additive | Accepts `optimization_options` / `routing_options`; new warnings (§9.6). M4: every issue carries `section` and `item_id`; the details of a rejected payload carry `severity`, `section`, and `item_id` |
 | `POST /api/v1/plans/solve` | Additive | Honours options; unique plan ID; runs off the event loop. M5: solves run in a separate worker process, because OR-Tools holds Python's interpreter lock for the whole search |
-| `GET /api/v1/scenarios` | New (M3) | List saved scenarios (ID, name, updated, counts) |
-| `POST /api/v1/scenarios` | Additive | `?if_exists=error` returns 409 instead of overwriting; default stays "replace" (M6). Since M3, POST and PUT drop an embedded Google matrix and report `routing_matrix_dropped` (D6) |
-| `DELETE /api/v1/scenarios/{id}` | New | Delete a scenario and its plans |
-| `PUT/GET/DELETE /api/v1/scenarios/{id}/draft` | New | Refresh-safe working copy (§11.3) |
-| `GET /api/v1/scenarios/{id}/plans` | New (M5) | Plan history for comparison: the stored plans, newest first, with their settings and headline figures |
+| `GET /api/v1/scenarios` | New (M3) | List saved scenarios (ID, name, updated, counts). M6 adds each scenario's plan count. Since M6, `GET /scenarios/{id}` strips coordinates older than 30 days and reports how many (`expired_coordinates_removed`) |
+| `POST /api/v1/scenarios` | Additive | `?if_exists=error` returns 409 `SCENARIO_EXISTS` instead of overwriting; default stays "replace" (built in M6). Since M3, POST and PUT drop an embedded Google matrix and report `routing_matrix_dropped` (D6) |
+| `DELETE /api/v1/scenarios/{id}` | New (M6) | Delete a scenario with its plans and draft; reports what was removed |
+| `PUT/GET/DELETE /api/v1/scenarios/{id}/draft` | New (M6) | Refresh-safe working copy (§11.3): the scenario plus small app context (`meta`); a Google matrix is dropped; GET strips expired coordinates |
+| `GET /api/v1/scenarios/{id}/plans` | New (M5) | Plan history for comparison: the stored plans, newest first, with their settings and headline figures. M6 adds the input fingerprint, trucks available, longest working time, driving time, and the remaining settings |
 | `POST /api/v1/imports/tasks/preview`, `/imports/locations/preview` | New | One import contract, owned by the backend. Locations in M3, tasks in M4 |
 | `GET /api/v1/imports/templates/{kind}` | New (M4) | Columns, aliases, and an example row for the `tasks` and `locations` templates |
 | `GET /api/v1/config` | New | Non-secret settings the UI needs: default timezone, whether a Google key is configured, limits, region code. M5 adds the time-limit ceiling and the history limit |
@@ -440,6 +440,8 @@ As built in M3:
 - **M6:** Save as, Duplicate, Delete, and the overwrite guard.
 - **Scenario ID.** A new scenario's ID follows its name until the planner chooses one.
 - **Other plant.** "Use another location as the plant" is under Advanced.
+
+As built in M6: Save as, Duplicate, Delete, and the overwrite guard are on the Scenario page; see §11.3. The saved-scenario list shows each scenario's plan count.
 
 ### 9.2 Locations
 
@@ -695,15 +697,60 @@ Deliberately not exposed: raw OR-Tools strategies, penalty constants, retry coun
 - **Compare:** recent plans for the scenario side by side — objective, trucks, kilometres, longest route, unscheduled count — so the effect of an objective mode or buffer is visible.
 - **Map and links:** per decision D1.
 
+As built in M6:
+
+- **Status.** One sentence per outcome, never the backend's code. Then the figures: truck-shifts used of available, POs planned, total distance and driving time, longest route, and tightest slack.
+- **Not planned.** Highest priority first, with the reason, the due time, and a suggested action. Problems with the whole plan, such as a timeout, are shown apart.
+- **Trucks and routes.**
+  - One row per truck-shift.
+  - Each route lists its stops with location names, PO numbers, quantities with the unit label, and plant-local times; a time after midnight says "(+1 day)".
+  - A route that ends away from its start says "Finish" rather than "Return".
+- **Compare.**
+  - Stored plans for the scenario ID, newest first.
+  - Each plan records an input fingerprint: period, plant, location IDs and addresses, trucks, shifts, tasks, and travel times. Names, notes, and settings are left out. The table therefore says whether another plan had the same inputs, so a difference comes from the settings.
+  - Any stored plan opens as an earlier plan, clearly dated, and can be exported.
+- **Map (D1).**
+  - Each truck-shift gets an "Open in Google Maps" link, with repeated consecutive places merged.
+  - Routes over nine waypoints or 2,048 characters are split into consecutive links.
+  - The OpenStreetMap preview remains only for coordinates supplied in JSON.
+  - There is no embedded Google map, because no embed key was provided.
+- **Attribution.** "Matched addresses: Google Maps" and "Travel times: Google Maps" appear on Scenario, Locations, Travel times, and Results, and in exports, wherever that content comes from Google.
+
 ### 11.2 Exports
 
 Existing CSV/XLSX columns keep their names and order for anyone already consuming them. Added: a plan-settings sheet (objective, effort, buffer, matrix source), priority on diagnostics, and one human-readable **run sheet per truck-shift** (local times, location names and addresses, PO, action, quantity). Formula-injection escaping continues to apply to every new cell.
+
+As built in M6:
+
+- **Diagnostics** gain `priority` and `suggested_action`, after the Version 1.0 columns.
+- **Plan Settings sheet**, added to the plan workbook: objective, effort, time limit, buffer, extra-truck cost, balance strength, travel-time source and calculation time, and timezone.
+- **Run sheets** are a separate workbook: "Plan Settings" first, then one printable sheet per truck-shift (landscape, fit to width).
+  - A header names the truck, the shift, the totals, and the settings.
+  - Then the stops: times, action, location name, the address as typed, PO, quantity, load, due time, slack, leg, and notes.
+- **Safety.** Every cell is escaped, including header lines built from planner text. Empty and failed plans still export their settings.
 
 ### 11.3 Scenarios and drafts
 
 - Open from a list; Save as and Duplicate create a new ID and never overwrite; saving over an existing ID asks first; Delete removes the scenario and its plans after confirmation.
 - **Refresh-safe drafts.** Streamlit loses session state on a browser refresh, which matters far more once planners type thirty tasks into forms. The current scenario ID is kept in the page URL, and each applied change is written to a draft slot on the backend. After a refresh or restart the app offers "Restore unsaved changes from 14:32" or "Discard". An explicit Save remains the only thing that changes the saved scenario.
 - Schema changes are additive only (new tables `geocode_cache`, `scenario_drafts`, and an index on plans); a `schema_meta` table records the schema version for future migrations. A database backup before first Version 1.1 start is documented.
+
+As built in M6:
+
+- **Save** replaces the saved scenario this session opened or saved. Saving under another ID that is already saved asks first ("Replace saved A" or "Keep the saved one"), using `if_exists=error`.
+- **Save as and Duplicate** use the same flag, so they never overwrite. Save as continues in the copy; Duplicate copies a saved scenario without opening it.
+- **Delete** needs a tick, then removes the scenario, its plans, and its draft. If that scenario is open, it stays open, unsaved.
+- **Drafts: writing.** The URL keeps `?scenario=<id>`. While there are unsaved edits, each change writes the draft. Saving, or undoing the edits, deletes it. Renaming the scenario ID moves it.
+- **Drafts: restoring.**
+  - A new session opens the saved scenario named in the URL, else the sample with that ID.
+  - It offers "Restore unsaved changes from <time>" or "Discard them". Nothing is written over the draft until the planner answers.
+  - Restoring brings back travel times that may be stored, and the plan if it was current.
+  - Google travel times are not kept (D6), only their identity, and the app asks for them to be calculated again.
+  - Two browser tabs on the same scenario share one draft slot; the later change wins.
+- **Retention on load.**
+  - Coordinates older than 30 days are stripped when a saved scenario or a draft is loaded, and by a sweep at start-up.
+  - The address, place ID, and confirmation stay. The app says how many locations need resolving again.
+- **Schema.** `schema_meta` records version 2. `scenario_drafts` and the `plans_by_scenario` index are new. The README repeats the backup advice.
 
 ## 12. Freshness rules
 
@@ -777,7 +824,7 @@ Eight milestones. The two must-have outcomes land in M3 (address-only) and M4 (f
 | V1.1-M3 | Scenario, plant, locations, travel times — address-only end to end | M | Complete (live-key manual check outstanding) |
 | V1.1-M4 | Fleet, shifts, tasks, import, review — forms complete | L | Complete |
 | V1.1-M5 | Optimization options and Optimize page | M | Complete |
-| V1.1-M6 | Results, plan history, scenario management, exports | M | Pending |
+| V1.1-M6 | Results, plan history, scenario management, exports | M | Complete |
 | V1.1-M7 | Hardening, documentation, release | S | Pending |
 
 ### V1.1-M0 — Baseline, decisions, safety net
@@ -918,6 +965,13 @@ Status (Build 019): automated checks pass. Manual run in the browser on Scenario
 **Manual checks:** reconcile a run sheet against the stop table; refresh the browser mid-entry and restore; open a Google Maps link and compare stop order.
 
 **Gate:** results are understandable without knowing any internal ID; no data loss on refresh.
+
+Status (Build 020): automated checks pass. Manual run in the browser, offline provider:
+
+- **Refresh mid-entry.** Restore brought back the edits, and after solving, also the current plan.
+- **Run sheet.** It matched the stop table row for row.
+- **Google Maps link.** It opened with the stops in the same order.
+- **Scenario management.** Save as, the overwrite guard, Duplicate, and Delete behaved as described.
 
 ### V1.1-M7 — Hardening, documentation, release
 
@@ -1081,9 +1135,9 @@ Nothing requested was dropped. Bulk grid editing, incremental matrix refresh, a 
 
 ## 21. Immediate next step
 
-V1.1-M0 (Build 014) to V1.1-M5 (Build 019) are complete on branch `v1.1`. Both must-have outcomes are delivered: address-only locations (M3) and forms for every input (M4).
+V1.1-M0 (Build 014) to V1.1-M6 (Build 020) are complete on branch `v1.1`. Both must-have outcomes are delivered: address-only locations (M3) and forms for every input (M4).
 
 Next:
 
 - The M3 live-key manual check, once there is a go-ahead for billable Google calls.
-- **V1.1-M6**: results in planner language, plan history and comparison, run sheets, scenario management, and drafts.
+- **V1.1-M7**: hardening, documentation, and release.

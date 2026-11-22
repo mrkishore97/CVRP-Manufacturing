@@ -161,8 +161,8 @@ class PlanResult(DomainModel):
     """Public planning result contract independent of solver implementation.
 
     The optional fields added in V1.1-M5 (``created_at``, ``optimization_options``,
-    ``matrix``, ``metrics``) are absent from plans stored by Version 1.0, which stay
-    readable.
+    ``matrix``, ``metrics``) and V1.1-M6 (``input_fingerprint``) are absent from plans
+    stored by Version 1.0, which stay readable.
     """
 
     plan_id: Identifier
@@ -181,6 +181,15 @@ class PlanResult(DomainModel):
     optimization_options: OptimizationOptions | None = None
     matrix: MatrixIdentity | None = None
     metrics: PlanMetrics | None = None
+    input_fingerprint: str | None = Field(
+        default=None,
+        max_length=100,
+        description=(
+            "Fingerprint of what was planned, settings excluded (V1.1-M6): two plans with "
+            "the same value were made from the same POs, fleet, and travel times, so "
+            "comparing them shows only the effect of the settings."
+        ),
+    )
 
     @field_validator("created_at")
     @classmethod

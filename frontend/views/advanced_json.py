@@ -51,7 +51,7 @@ from frontend.views.opening import (
     open_saved,
     replace_workspace,
 )
-from frontend.views.saving import save_current
+from frontend.views.saving import render_overwrite_question, save_current
 
 MODE_KEY = "json_view_mode"
 CONFIRM_DISCARD_KEY = "confirm_discard_edits"
@@ -262,6 +262,7 @@ def _render_downloads_and_save(ctx: AppContext, workspace: Workspace) -> None:
     )
     if col_save.button("Save scenario"):
         save_current(ctx)
+    render_overwrite_question(ctx, key_prefix="json")
     if workspace.derived.matrix is not None and not matrix_is_storable(workspace.derived.matrix):
         st.caption(
             "Travel times from Google are kept only for this session: they are not in the "

@@ -71,16 +71,32 @@ def open_saved(ctx: AppContext, scenario_id: str) -> None:
         st.error("Saved scenario response did not contain a scenario.")
         return
     loaded_id = str(response.payload.get("scenario_id", scenario_id))
-    replace_workspace(load_document(document, source=f"saved scenario {loaded_id}"))
-    set_flash("success", f"Opened saved scenario {loaded_id}.")
+    replace_workspace(
+        load_document(document, source=f"saved scenario {loaded_id}", saved_id=loaded_id)
+    )
+    set_flash("success", f"Opened saved scenario {loaded_id}.{expired_note(response.payload)}")
     st.rerun()
 
 
+def expired_note(payload: dict[str, Any]) -> str:
+    """What to tell the planner when the backend removed coordinates older than 30 days."""
+    removed = int(payload.get("expired_coordinates_removed", 0) or 0)
+    if not removed:
+        return ""
+    return (
+        f" {removed} location(s) had coordinates older than 30 days; they were removed, as "
+        "Google's terms require. Resolve them again on the Locations page."
+    )
+
+
 def saved_scenario_label(summary: dict[str, object]) -> str:
-    """``WEEK-26 — Inbound week 26 (7 locations, 12 tasks; saved 2026-11-18)``."""
+    """``WEEK-26 — Inbound week 26 (7 locations, 12 tasks, 3 plans; saved 2026-11-18)``."""
     name = summary.get("name")
     updated = str(summary.get("updated_at", ""))[:10]
     counts = f"{summary.get('location_count', 0)} locations, {summary.get('task_count', 0)} tasks"
+    plans = summary.get("plan_count")
+    if isinstance(plans, int) and plans:
+        counts += f", {plans} plan{'s' if plans != 1 else ''}"
     return (
         f"{summary.get('scenario_id')}"
         + (f" — {name}" if name else "")

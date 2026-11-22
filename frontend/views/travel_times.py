@@ -16,6 +16,7 @@ import streamlit as st
 from frontend.api_client import BackendClientError
 from frontend.state.locations import unused_ids
 from frontend.state.readiness import USABLE_READINESS
+from frontend.state.results import GOOGLE_MATRIX_SOURCE
 from frontend.state.scenario_state import ScenarioEditError, set_fields
 from frontend.state.timeutil import format_local, local_iso, split_for_form, wall_clock_text
 from frontend.state.workspace import (
@@ -34,6 +35,7 @@ from frontend.views.components import (
     go_to,
     next_step_button,
     render_backend_error,
+    render_google_attribution,
     set_flash,
     set_workspace,
 )
@@ -92,6 +94,9 @@ def render(ctx: AppContext) -> None:
         created = matrix.get("created_at")
         timezone = str(workspace.scenario.get("timezone") or "America/Toronto")
         col_3.metric("Calculated", format_local(str(created), timezone) if created else "—")
+        render_google_attribution(
+            ctx, travel_times=str(matrix.get("source")) == GOOGLE_MATRIX_SOURCE
+        )
     st.caption("Google is called only when you press Calculate travel times.")
     next_step_button("optimize", "Next: Optimize")
 

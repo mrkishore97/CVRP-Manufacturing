@@ -58,6 +58,15 @@ class FakeBackend:
         self.template_calls: list[str] = []
         self.list_calls = 0
         self.saved: dict[str, dict[str, Any]] = {}
+        self.save_calls: list[tuple[str, bool]] = []
+        self.drafts: dict[str, dict[str, Any]] = {}
+        self.draft_puts: list[str] = []
+        self.plans: dict[str, dict[str, Any]] = {}
+        self.plan_scenarios: dict[str, str] = {}
+        self.next_plan: dict[str, Any] | None = None
+        """When set, the next solve returns this plan (with a fresh ID) instead."""
+        self.expired_on_load = 0
+        """Reported as ``expired_coordinates_removed`` when a saved scenario is loaded."""
 
     # --- configuration helpers -------------------------------------------------
 
@@ -132,19 +141,59 @@ class FakeBackend:
     ) -> api_client.WorkflowResponse:
         self.solve_calls.append(deepcopy(payload))
         self.solve_time_limits.append(time_limit_seconds)
-        raw = {
-            "validation": self._validation(payload),
-            "plan": {
-                "plan_id": f"PLAN-{len(self.solve_calls)}",
+        plan_id = f"PLAN-{len(self.solve_calls)}"
+        if self.next_plan is not None:
+            plan = {**deepcopy(self.next_plan), "plan_id": plan_id}
+        else:
+            plan = {
+                "plan_id": plan_id,
                 "status": "FEASIBLE",
                 "optimization_options": deepcopy(payload.get("optimization_options")),
                 "scheduled_task_ids": [task["task_id"] for task in payload.get("tasks", [])],
                 "unscheduled_task_ids": [],
                 "diagnostics": [],
                 "routes": [],
-            },
-        }
+            }
+        plan.setdefault("created_at", NOW_TEXT)
+        self.plans[plan_id] = deepcopy(plan)
+        self.plan_scenarios[plan_id] = str(payload.get("scenario_id"))
+        raw = {"validation": self._validation(payload), "plan": plan}
         return api_client.WorkflowResponse(raw=raw, request_id="req-solve")
+
+    def get_plan(self, plan_id: str) -> api_client.WorkflowResponse:
+        if plan_id not in self.plans:
+            raise api_client.BackendApiError(
+                status_code=404, code="PLAN_NOT_FOUND", message="Not found.", request_id="r"
+            )
+        raw = {"plan": deepcopy(self.plans[plan_id]), "scenario_id": self.plan_scenarios[plan_id]}
+        return api_client.WorkflowResponse(
+            raw=raw, request_id="req-plan", plan=api_client.PlanSummary.from_response(raw)
+        )
+
+    def plan_history(self, scenario_id: str) -> list[dict[str, Any]]:
+        history = []
+        for plan_id in reversed(list(self.plans)):
+            if self.plan_scenarios[plan_id] != scenario_id:
+                continue
+            plan = self.plans[plan_id]
+            options = plan.get("optimization_options") or {}
+            history.append(
+                {
+                    "plan_id": plan_id,
+                    "created_at": plan.get("created_at", NOW_TEXT),
+                    "status": plan.get("status"),
+                    "objective_mode": options.get("objective_mode", "MINIMIZE_TRUCKS"),
+                    "search_effort": options.get("search_effort", "STANDARD"),
+                    "travel_time_factor": options.get("travel_time_factor", 1.0),
+                    "truck_shifts_used": len(plan.get("routes", [])),
+                    "total_distance_meters": plan.get("total_distance_meters", 0),
+                    "longest_route_seconds": None,
+                    "scheduled_count": len(plan.get("scheduled_task_ids", [])),
+                    "unscheduled_count": len(plan.get("unscheduled_task_ids", [])),
+                    "input_fingerprint": plan.get("input_fingerprint"),
+                }
+            )
+        return history
 
     def resolve_locations(
         self,
@@ -280,14 +329,25 @@ class FakeBackend:
             payload={"matrix": matrix, "cache_hit": False, "cache_enabled": self.cache_enabled}
         )
 
-    def save_scenario(self, payload: dict[str, Any]) -> api_client.ApiResult:
+    def save_scenario(
+        self, payload: dict[str, Any], *, overwrite: bool = True
+    ) -> api_client.ApiResult:
+        scenario_id = str(payload["scenario_id"])
+        self.save_calls.append((scenario_id, overwrite))
+        if not overwrite and scenario_id in self.saved:
+            raise api_client.BackendApiError(
+                status_code=409,
+                code="SCENARIO_EXISTS",
+                message=f"A saved scenario with ID {scenario_id} already exists.",
+                request_id="r",
+            )
         stored = deepcopy(payload)
         dropped = False
         matrix = stored.get("routing_matrix")
         if isinstance(matrix, dict) and matrix.get("source") == "google_routes":
             del stored["routing_matrix"]
             dropped = True
-        self.saved[str(payload["scenario_id"])] = stored
+        self.saved[scenario_id] = stored
         return api_client.ApiResult(
             payload={"scenario_id": payload["scenario_id"], "routing_matrix_dropped": dropped}
         )
@@ -298,8 +358,57 @@ class FakeBackend:
                 status_code=404, code="SCENARIO_NOT_FOUND", message="Not found.", request_id="r"
             )
         return api_client.ApiResult(
-            payload={"scenario_id": scenario_id, "payload": deepcopy(self.saved[scenario_id])}
+            payload={
+                "scenario_id": scenario_id,
+                "payload": deepcopy(self.saved[scenario_id]),
+                "expired_coordinates_removed": self.expired_on_load,
+            }
         )
+
+    def delete_scenario(self, scenario_id: str) -> api_client.ApiResult:
+        if scenario_id not in self.saved:
+            raise api_client.BackendApiError(
+                status_code=404, code="SCENARIO_NOT_FOUND", message="Not found.", request_id="r"
+            )
+        del self.saved[scenario_id]
+        removed = [
+            plan_id for plan_id, owner in self.plan_scenarios.items() if owner == scenario_id
+        ]
+        for plan_id in removed:
+            self.plans.pop(plan_id, None)
+            self.plan_scenarios.pop(plan_id, None)
+        draft_removed = self.drafts.pop(scenario_id, None) is not None
+        return api_client.ApiResult(
+            payload={
+                "scenario_id": scenario_id,
+                "plans_removed": len(removed),
+                "draft_removed": draft_removed,
+            }
+        )
+
+    def put_draft(
+        self, scenario_id: str, payload: dict[str, Any], meta: dict[str, Any]
+    ) -> api_client.ApiResult:
+        stored = deepcopy(payload)
+        matrix = stored.get("routing_matrix")
+        if isinstance(matrix, dict) and matrix.get("source") == "google_routes":
+            del stored["routing_matrix"]
+        self.draft_puts.append(scenario_id)
+        self.drafts[scenario_id] = {
+            "scenario_id": scenario_id,
+            "payload": stored,
+            "meta": deepcopy(meta),
+            "updated_at": NOW_TEXT,
+        }
+        return api_client.ApiResult(payload=deepcopy(self.drafts[scenario_id]))
+
+    def get_draft(self, scenario_id: str) -> dict[str, Any] | None:
+        draft = self.drafts.get(scenario_id)
+        return deepcopy(draft) if draft is not None else None
+
+    def delete_draft(self, scenario_id: str) -> api_client.ApiResult:
+        deleted = self.drafts.pop(scenario_id, None) is not None
+        return api_client.ApiResult(payload={"scenario_id": scenario_id, "deleted": deleted})
 
     def list_scenarios(self) -> list[dict[str, Any]]:
         self.list_calls += 1

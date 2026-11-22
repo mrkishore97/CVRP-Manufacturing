@@ -33,6 +33,7 @@ from frontend.state.locations import (
     used_by,
 )
 from frontend.state.readiness import LocationReadiness
+from frontend.state.results import uses_resolved_locations
 from frontend.state.scenario_state import (
     ReferencedItemError,
     ScenarioEditError,
@@ -51,6 +52,7 @@ from frontend.views.components import (
     get_workspace,
     next_step_button,
     render_backend_error,
+    render_google_attribution,
     set_flash,
     set_workspace,
     table,
@@ -78,6 +80,7 @@ def render(ctx: AppContext) -> None:
     _render_summary(readiness)
     if rows(scenario, "locations"):
         table(table_rows(scenario, readiness))
+        render_google_attribution(ctx, addresses=uses_resolved_locations(scenario))
     else:
         st.info("No locations yet. Add the plant on the Scenario page, then add others here.")
 

@@ -37,7 +37,18 @@ The **Optimize** page decides how plans are made:
 
 No setting relaxes a hard rule, and changing one needs no new travel-time calculation. Each solve is stored as a new plan; the last 20 per scenario are kept. Solves run in a separate worker process, so the backend stays responsive during a long one.
 
-Google travel times are not stored (decision D6): they are kept for the session only and are left out of saved scenarios and JSON downloads. At start-up the backend removes Google matrices that Version 1.0 cached or saved. Back up `data/route_optimizer.db` first if you want to keep a copy (see [SQLite backup and restore](docs/backup_restore.md)).
+The **Results** page speaks the planner's language:
+
+- **Overview:** the outcome in one sentence, trucks used, POs planned, distance, longest route, and tightest slack.
+- **Routes:** every stop shows a location name and PO number, with plant-local times.
+- **Not planned:** POs left out are listed highest priority first, each with a reason and a suggested action.
+- **Google Maps:** each route opens there with one click. Longer routes are split into parts.
+- **Compare plans:** earlier plans for the scenario sit side by side. The table says which were made from the same inputs, and any of them can be reopened.
+- **Exports:** a run-sheet workbook has one printable sheet per truck-shift. The plan workbook gains a sheet of the settings the plan was made with.
+
+**Scenarios** can be saved, saved under a new name (never overwriting), duplicated, and deleted. Save asks before replacing a different scenario with the same ID. While a scenario has unsaved edits, the app keeps them on the backend: after a browser refresh it offers to restore them.
+
+Google travel times are not stored (decision D6): they are kept for the session only and are left out of saved scenarios, drafts, and JSON downloads. At start-up the backend removes Google matrices that Version 1.0 cached or saved, and coordinates older than 30 days (they are also removed when a scenario is opened). The first Version 1.1 start also adds tables for drafts and a schema version. Back up `data/route_optimizer.db` first if you want to keep a copy (see [SQLite backup and restore](docs/backup_restore.md)).
 
 ## Architecture boundary
 

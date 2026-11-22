@@ -38,6 +38,8 @@ from frontend.views.components import (
     get_workspace,
     go_to,
     next_step_button,
+    render_google_attribution,
+    row_revision,
 )
 from frontend.views.opening import (
     discard_allowed,
@@ -47,7 +49,15 @@ from frontend.views.opening import (
     saved_scenario_label,
     saved_scenarios,
 )
-from frontend.views.saving import SAVED_LIST_KEY, save_current
+from frontend.views.saving import (
+    SAVED_LIST_KEY,
+    delete_saved,
+    duplicate_saved,
+    render_overwrite_question,
+    save_as,
+    save_current,
+    suggested_copy,
+)
 
 CONFIRM_DISCARD_KEY = "scenario_confirm_discard"
 
@@ -146,6 +156,8 @@ def _render_plant(ctx: AppContext, scenario: dict[str, Any]) -> None:
             f"Address status: **{READINESS_LABELS[state]}**"
             + (f" — matched “{matched}”" if matched else "")
         )
+        if matched:
+            render_google_attribution(ctx, addresses=bool(plant.get("geocode_source_fingerprint")))
         if state not in (LocationReadiness.READY, LocationReadiness.SUPPLIED) and st.button(
             "Resolve on the Locations page", key="plant-go-locations"
         ):
@@ -230,26 +242,39 @@ def _render_open_and_save(ctx: AppContext) -> None:
     workspace = get_workspace()
     if workspace.derived.loaded_from:
         st.caption(f"Opened from: {workspace.derived.loaded_from}")
+    scenario_id = str(workspace.scenario.get("scenario_id") or "")
     col_save, col_status = st.columns([1, 3])
     if col_save.button("Save scenario", type="primary", disabled=not ctx.connected) and (
         ctx.connected
     ):
         save_current(ctx)
-    col_status.caption("Unsaved edits." if ctx.status.unsaved_edits else "No unsaved edits.")
+    if not ctx.status.unsaved_edits:
+        col_status.caption("No unsaved edits.")
+    elif workspace.derived.saved_scenario_id == scenario_id:
+        col_status.caption(f"Unsaved edits. Save replaces the saved {scenario_id}.")
+    else:
+        col_status.caption(f"Unsaved edits. Not saved under {scenario_id} yet.")
+    render_overwrite_question(ctx, key_prefix="scenario")
+
+    summaries = saved_scenarios(ctx)
+    taken = [str(summary.get("scenario_id")) for summary in summaries]
+    _render_save_as(ctx, workspace.scenario, taken)
 
     allowed = discard_allowed(ctx, CONFIRM_DISCARD_KEY)
     col_saved, col_sample = st.columns(2)
     with col_saved:
-        summaries = saved_scenarios(ctx)
         if summaries:
             by_id = {str(summary.get("scenario_id")): summary for summary in summaries}
             chosen = st.selectbox(
                 "Saved scenario",
                 options=list(by_id),
                 format_func=lambda key: saved_scenario_label(by_id[key]),
+                key="saved-choice",
             )
             if st.button("Open saved scenario", disabled=not allowed) and allowed and chosen:
                 open_saved(ctx, str(chosen))
+            if chosen:
+                _render_duplicate_and_delete(ctx, by_id[str(chosen)], taken)
         elif ctx.connected:
             st.caption("No saved scenarios yet.")
         if st.button("Refresh list", disabled=not ctx.connected) and ctx.connected:
@@ -265,6 +290,71 @@ def _render_open_and_save(ctx: AppContext) -> None:
             open_sample(str(letter))
         if st.button("Start a new empty scenario", disabled=not allowed) and allowed:
             open_empty(ctx)
+
+
+def _seed(values: dict[str, Any], *, owner_key: str, owner: str) -> None:
+    """Fill keyed fields with suggestions whenever what they are about changes.
+
+    Fixed keys and no ``value=`` keep each field's widget ID the same on every run, and
+    the session state carries the suggestion instead.
+    """
+    if st.session_state.get(owner_key) != owner:
+        for key, value in values.items():
+            st.session_state[key] = value
+        st.session_state[owner_key] = owner
+
+
+def _render_save_as(ctx: AppContext, scenario: dict[str, Any], taken: list[str]) -> None:
+    """Save the open scenario under a new name and ID; it never overwrites."""
+    name = str(scenario.get("name") or "")
+    scenario_id = str(scenario.get("scenario_id") or "")
+    suggested_name, suggested_id = suggested_copy(name, scenario_id, taken)
+    _seed(
+        {"save-as-name": suggested_name, "save-as-id": suggested_id},
+        owner_key="save-as-for",
+        owner=row_revision({"id": scenario_id, "name": name, "taken": taken}),
+    )
+    with st.expander("Save as a new scenario"):
+        with st.form("save-as"):
+            new_name = st.text_input("New name", key="save-as-name")
+            new_id = st.text_input(
+                "New scenario ID",
+                key="save-as-id",
+                help="Must not be used by another saved scenario; Save as never overwrites.",
+            )
+            submitted = st.form_submit_button("Save as", disabled=not ctx.connected)
+        if submitted and ctx.connected:
+            save_as(ctx, name=str(new_name), scenario_id=str(new_id))
+
+
+def _render_duplicate_and_delete(
+    ctx: AppContext, summary: dict[str, Any], taken: list[str]
+) -> None:
+    scenario_id = str(summary.get("scenario_id"))
+    name = str(summary.get("name") or "")
+    copy_name, copy_id = suggested_copy(name, scenario_id, taken)
+    _seed(
+        {"duplicate-name": copy_name, "duplicate-id": copy_id, "delete-confirm": False},
+        owner_key="duplicate-for",
+        owner=row_revision({"id": scenario_id, "taken": taken}),
+    )
+    with st.expander("Duplicate or delete the chosen saved scenario"):
+        with st.form("duplicate-saved"):
+            st.caption(f"Copies {scenario_id} to a new ID without opening it.")
+            dup_name = st.text_input("Name of the copy", key="duplicate-name")
+            dup_id = st.text_input("ID of the copy", key="duplicate-id")
+            duplicate = st.form_submit_button("Duplicate", disabled=not ctx.connected)
+        if duplicate and ctx.connected:
+            duplicate_saved(ctx, scenario_id, name=str(dup_name), new_id=str(dup_id))
+        plans = int(summary.get("plan_count", 0) or 0)
+        st.caption(f"Deleting {scenario_id} also deletes its {plans} stored plan(s).")
+        confirm = st.checkbox("Yes, delete it permanently", key="delete-confirm")
+        if st.button(
+            f"Delete saved scenario {scenario_id}",
+            disabled=not (confirm and ctx.connected),
+            key="delete-saved",
+        ) and (confirm and ctx.connected):
+            delete_saved(ctx, scenario_id)
 
 
 def _id_follows_name(scenario_id: str, name: str) -> bool:

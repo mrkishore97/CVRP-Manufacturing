@@ -13,9 +13,7 @@ import streamlit as st
 from frontend.api_client import BackendClient, BackendClientError, BackendConfig
 from frontend.samples import load_sample_payload
 from frontend.state.readiness import workflow_status
-from frontend.state.workspace import load_document
 from frontend.views.components import (
-    WORKSPACE_KEY,
     AppContext,
     get_workspace,
     remember_widgets,
@@ -23,17 +21,18 @@ from frontend.views.components import (
     render_flash,
 )
 from frontend.views.navigation import current_page, render_navigation
+from frontend.views.session import (
+    ensure_workspace,
+    keep_scenario_in_url,
+    render_restore_offer,
+    sync_draft,
+)
 from frontend.views.status import render_status
 from frontend.views.validation import run_validation
 
 CONFIG_KEY = "backend_config"
 
 __all__ = ["load_sample_payload", "render_app"]
-
-
-def _ensure_workspace() -> None:
-    if WORKSPACE_KEY not in st.session_state:
-        st.session_state[WORKSPACE_KEY] = load_document(load_sample_payload("A"), source="sample A")
 
 
 def _backend_config(client: BackendClient) -> BackendConfig | None:
@@ -56,7 +55,6 @@ def render_app() -> None:
         layout="wide",
     )
     remember_widgets()
-    _ensure_workspace()
     client = BackendClient.from_environment()
     health_error: BackendClientError | None = None
     version: str | None = None
@@ -65,8 +63,11 @@ def render_app() -> None:
     except BackendClientError as exc:
         health_error = exc
     connected = health_error is None
+    ensure_workspace(client, connected=connected)
+    keep_scenario_in_url()
     config = _backend_config(client) if connected else None
     if connected:
+        sync_draft(client)
         run_validation(client)
 
     now = datetime.now(UTC)
@@ -94,6 +95,8 @@ def render_app() -> None:
         if health_error is not None:
             render_backend_error(health_error)
             st.info("You can still view and edit the scenario. Checking and planning need the API.")
+        if connected:
+            render_restore_offer(client)
         render_flash()
     page.render(context)
 

@@ -53,6 +53,14 @@ def _load_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def sample_key_for(scenario_id: str) -> str | None:
+    """The sample offered in the app whose scenario ID this is, if any."""
+    for key in SAMPLE_LABELS:
+        if str(load_sample_payload(key, include_matrix=False).get("scenario_id")) == scenario_id:
+            return key
+    return None
+
+
 def load_sample_payload(scenario: str = "A", *, include_matrix: bool = True) -> dict[str, Any]:
     """One sample as a planning document; Version 1.0 samples carry their matrix."""
     key = scenario.upper()

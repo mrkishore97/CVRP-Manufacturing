@@ -17,10 +17,21 @@ from backend.app.api.routes.plans import router as plans_router
 from backend.app.api.routes.routing import router as routing_router
 from backend.app.api.routes.scenarios import router as scenarios_router
 from backend.app.api.routes.system import router as system_router
-from backend.app.application.retention import RetentionSweep, sweep_unstorable_matrices
+from backend.app.application.retention import (
+    CoordinateSweep,
+    RetentionSweep,
+    sweep_expired_coordinates,
+    sweep_unstorable_matrices,
+)
 from backend.app.config import Settings, get_settings
 from backend.app.logging_config import configure_logging
-from backend.app.persistence import SQLiteGeocodeCache
+from backend.app.persistence import (
+    SQLiteDraftRepository,
+    SQLiteGeocodeCache,
+    SQLitePlanRepository,
+    SQLiteScenarioRepository,
+    record_schema_version,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +53,23 @@ def purge_unstorable_matrices(application: FastAPI, settings: Settings) -> Reten
     return sweep_unstorable_matrices(database_for_app(application, settings))
 
 
+def purge_expired_coordinates(application: FastAPI, settings: Settings) -> CoordinateSweep:
+    """Strip coordinates past the 30-day limit from saved scenarios and drafts (D2)."""
+    return sweep_expired_coordinates(
+        database_for_app(application, settings),
+        max_age_seconds=settings.geocode_cache_ttl_seconds,
+    )
+
+
+def prepare_schema(application: FastAPI, settings: Settings) -> int:
+    """Create every table and index, then record the schema version (plan §11.3)."""
+    database = database_for_app(application, settings)
+    SQLiteScenarioRepository(database)
+    SQLitePlanRepository(database)
+    SQLiteDraftRepository(database)
+    return record_schema_version(database)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create a backend application with explicit process-level dependencies."""
     active_settings = settings or get_settings()
@@ -49,8 +77,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+        prepare_schema(application, active_settings)
         purge_expired_geocodes(application, active_settings)
         purge_unstorable_matrices(application, active_settings)
+        purge_expired_coordinates(application, active_settings)
         yield
 
     application = FastAPI(

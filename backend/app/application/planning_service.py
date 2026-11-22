@@ -15,6 +15,7 @@ worker process, shared by the whole backend, which also makes solves run one at 
 from __future__ import annotations
 
 import hashlib
+import json
 import multiprocessing
 import os
 import threading
@@ -104,6 +105,43 @@ def apply_travel_time_factor(request: PlanningRequest, factor: float) -> Plannin
     )
 
 
+_DESCRIPTIVE_FIELDS = {"vehicles": "name", "tasks": "notes"}
+"""Fields that describe a row without changing what can be planned."""
+_MATRIX_INPUT_FIELDS = (
+    "location_ids",
+    "distance_meters",
+    "duration_seconds",
+    "source",
+    "travel_mode",
+    "routing_preference",
+    "departure_time",
+)
+
+
+def input_fingerprint(request: PlanningRequest) -> str:
+    """What was planned, without the settings: ``v1:<sha256>``.
+
+    Built from the planning period, plant, location IDs and addresses, trucks, shifts,
+    tasks, and the travel times (unbuffered, without their timestamps). Names, task
+    notes, and derived geocoding fields are left out, as are the optimization options,
+    so plans that differ only in their settings share a fingerprint (V1.1-M6).
+    """
+    dumped = request.model_dump(mode="json", exclude={"optimization_options", "scenario_id"})
+    dumped["locations"] = [
+        {"location_id": location["location_id"], "address": location["address"]}
+        for location in dumped["locations"]
+    ]
+    for collection, field in _DESCRIPTIVE_FIELDS.items():
+        dumped[collection] = [
+            {key: value for key, value in row.items() if key != field} for row in dumped[collection]
+        ]
+    matrix = dumped.get("routing_matrix")
+    if isinstance(matrix, dict):
+        dumped["routing_matrix"] = {key: matrix.get(key) for key in _MATRIX_INPUT_FIELDS}
+    encoded = json.dumps(dumped, sort_keys=True, separators=(",", ":"), default=str)
+    return f"v1:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
+
+
 def matrix_identity(matrix: RoutingMatrix | None, factor: float) -> MatrixIdentity | None:
     if matrix is None:
         return None
@@ -161,6 +199,7 @@ class PlanningService:
                 "created_at": created_at,
                 "optimization_options": options.with_time_limit(time_limit),
                 "matrix": matrix_identity(request.routing_matrix, options.travel_time_factor),
+                "input_fingerprint": input_fingerprint(request),
             }
         )
 

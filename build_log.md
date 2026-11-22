@@ -3,7 +3,7 @@
 **Purpose:** Chronological implementation and verification record  
 **Project plan:** `project_plan.md` (Version 1.0); `project_plan_v1.1.md` (Version 1.1, from Build 014)  
 **Started:** 2026-06-21  
-**Current milestone:** Version 1.1 — V1.1-M5 complete on branch `v1.1` (M3 live-key manual check outstanding); next V1.1-M6
+**Current milestone:** Version 1.1 — V1.1-M6 complete on branch `v1.1` (M3 live-key manual check outstanding); next V1.1-M7
 
 ## Logging rules
 
@@ -1741,3 +1741,170 @@ Also tested:
 
 - Run the M3 live-key manual check when approved.
 - Start V1.1-M6 (results, plan history and comparison, run sheets, scenario management, drafts).
+
+## 2026-11-21 — Build 020 — V1.1-M6 — Results, plan history, scenario management
+
+Plan: `project_plan_v1.1.md` §14, V1.1-M6 (design in §11.1–11.3, §12, decisions D1 and D6).
+
+### Scope
+
+- The Results page in planner language.
+- Plan comparison and earlier plans.
+- Run sheets and updated exports.
+- Scenario management: Save as, Duplicate, Delete, and the overwrite guard.
+- Refresh-safe drafts and restore.
+- Map behaviour per D1 (Google Maps links).
+- Drafts storing only the matrix identity (D6).
+- Google attribution.
+- Stripping expired coordinates on load.
+
+### Decisions
+
+No open decision blocked M6. D1 is implemented as "links only": no embed key was provided, so there is no embedded Google map. D6's last part (drafts store only the matrix identity) is implemented.
+
+### Changes
+
+- **Plan identity** (`application/planning_service.py`, `domain/results.py`)
+  - Each plan records an `input_fingerprint` of what was planned: period, plant, location IDs and addresses, trucks, shifts, tasks, and travel times without their timestamps.
+  - Names, notes, settings, and derived geocoding fields are left out, so plans that differ only in their settings share it.
+  - Plan history summaries add the fingerprint, trucks available, longest working time, driving time, and the remaining settings.
+- **Persistence** (`persistence/scenario_repository.py`)
+  - `save(..., overwrite=False)` raises instead of replacing.
+  - New: `delete`, a `scenario_drafts` table and repository, plan deletion and counts per scenario, and the `plans_by_scenario` index.
+  - `schema_meta` records schema version 2. The backend prepares the schema at start-up.
+- **API** (`api/routes/scenarios.py`, `api/contracts.py`)
+  - Scenarios:
+    - `POST /scenarios?if_exists=error` answers 409 `SCENARIO_EXISTS`; the default still replaces.
+    - `DELETE /scenarios/{id}` removes the scenario, its plans, and its draft.
+    - The scenario list adds `plan_count`.
+  - Drafts: `PUT/GET/DELETE /scenarios/{id}/draft`.
+    - The path and payload IDs must match, and `meta` is limited to 16 KB.
+    - A Google matrix is dropped.
+- **Retention** (`application/retention.py`)
+  - Coordinates found by address resolution that are older than 30 days are stripped when a saved scenario or a draft is loaded, and by a sweep at start-up. The stored copy is cleaned too.
+  - The address, place ID, and confirmation stay, and the status returns to `PENDING`.
+  - Coordinates supplied in JSON are never stripped. The start-up sweep for Google matrices now covers drafts too.
+- **Results in planner language** (`frontend/state/results.py`, new; `frontend/views/results.py`, rewritten)
+  - The status is one sentence. The figures are truck-shifts used, POs planned, distance, driving time, longest route, and tightest slack.
+  - Not-planned POs come highest priority first, with a reason, the due time, and a suggested action. Problems with the whole plan are shown apart.
+  - Trucks and routes show location names, POs, quantities with the unit, plant-local times (with "+1 day"), and Depart / Pick up / Deliver / Return or Finish.
+- **Compare and earlier plans**
+  - Stored plans are listed side by side, newest first, with "Inputs: This plan / Same / Different".
+  - Any other plan opens as an earlier plan, clearly dated, and can be exported.
+  - A stale plan stays hidden but listed.
+- **Map (D1).** Each route gets an "Open in Google Maps" link.
+  - Repeated consecutive places are merged.
+  - Routes beyond nine waypoints or 2,048 characters are split into consecutive links.
+  - The OpenStreetMap preview remains for JSON coordinates only.
+- **Attribution.** "Matched addresses / Travel times: Google Maps" appears on Scenario, Locations, Travel times, and Results, and in exports, wherever that content comes from Google.
+- **Exports** (`frontend/export_utils.py`)
+  - Version 1.0 columns and sheets are unchanged.
+  - Diagnostics gain `priority` and `suggested_action`, and the plan workbook gains a "Plan Settings" sheet.
+  - A new run-sheet workbook has one printable sheet per truck-shift (header, then stops with names and addresses).
+  - Every cell is escaped, and empty or failed plans export.
+- **Scenario management** (`frontend/views/saving.py`, `scenario.py`, `advanced_json.py`)
+  - Save replaces only the copy this session opened or saved; otherwise it asks first.
+  - Save as and Duplicate never overwrite, and Save as continues in the copy.
+  - Delete needs a tick and leaves an open scenario unsaved.
+- **Drafts** (`frontend/state/drafts.py`, `frontend/views/session.py`, new)
+  - The URL keeps `?scenario=`.
+  - While there are unsaved edits, each change writes the draft; saving or undoing the edits deletes it, and renaming the ID moves it.
+  - A new session opens the saved scenario in the URL (else the sample with that ID) and offers Restore or Discard. Nothing is written over the draft until the planner answers.
+  - Restore brings back storable travel times and a current plan. Google travel times come back only as their identity, with a prompt to calculate them again.
+  - The sidebar says when unsaved edits are kept.
+- **Tests and docs**
+  - The fake backend gains the new calls.
+  - Two Results assertions now read the plain-language status.
+  - The plan, the README "Current status", and this log are updated.
+
+### Found and fixed
+
+- **Tests wrote to the real database.** Three Version 1.0 health tests started the backend with the default `DATABASE_PATH`, which is the real `data/route_optimizer.db`.
+  - Before M6 their start-up changed nothing there. With M6, their start-up created the new schema in it on the first test run (18:06), before this was noticed.
+  - What changed in the real database: an empty `scenario_drafts` table, the plans index, and `schema_meta` (version 2). The backend would add all three on its first M6 start anyway.
+  - Nothing was removed. The one saved scenario there has no resolved coordinates, and its row was not changed.
+  - The tests now use a temporary database. A later full run left the real database's modification time unchanged.
+- **Stale widgets in the test harness.** Streamlit's test harness keeps elements from a run interrupted by `st.rerun()`. The new Save-as fields changed widget ID between runs, so they had no state and the next click failed.
+  - Fix: the fields have fixed keys and their suggestions are seeded through session state, so the IDs stay the same.
+- **A leftover M5 process.** The M5 manual run had left a Streamlit on port 8525 running. It was stopped; `run_app.ps1` uses 8000 and 8501, so it was not the planner's.
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| `python -m ruff format --check .` | PASS | |
+| `python -m ruff check .` | PASS | |
+| `python -m mypy backend frontend` | PASS | No issues in 170 source files. |
+| `python -m pytest -q` | PASS | **749 passed** (690 before, 59 new). Same 3 OR-Tools/SWIG warnings. |
+| Characterization tests A–F | PASS | Unchanged. |
+| `python scripts/validate_m0.py` | PASS | 672 checks. |
+| `python scripts/validate_m9_release.py` | PASS | |
+| `python scripts/review_m2_payloads.py` | PASS | |
+| `python scripts/smoke_m1.py` | PASS | `DATABASE_PATH` set to a scratch file. |
+| `python -m pip check` | PASS | |
+| Real database untouched by the final runs | PASS | Modification time unchanged across the full test run and the gate scripts (see "Found and fixed" for the earlier run). |
+
+Plan M6 checks and their tests:
+
+| Plan check | Tests |
+|---|---|
+| Local-time and unit formatting | `test_times_are_plant_local_and_say_when_they_fall_on_a_later_day`, `test_units_are_kilometres_hours_and_the_capacity_label`, `test_trucks_show_day_times_and_peak_load_against_capacity` |
+| Location names resolved for every stop | `test_every_stop_shows_a_location_name_and_po_instead_of_ids`, `test_results_speak_the_planners_language`, `test_every_stop_has_a_name_and_the_run_sheets_match_the_stop_tables` (real app and backend) |
+| Exports contain settings, priority, and run sheets and remain formula-safe | `test_m6_exports.py`: Version 1.0 columns first; priority and suggested action; Plan Settings sheet; run sheets reconcile with the stop table; formula-like planner text escaped |
+| Empty and partial plans export | `test_empty_and_failed_plans_still_export`, plus the existing `test_export_generation_handles_empty_partial_plan` |
+| Save/load round-trip is lossless | `test_a_saved_scenario_round_trips_losslessly` |
+| Save as never overwrites | `test_if_exists_error_never_overwrites_and_the_default_still_replaces`, `test_save_as_never_overwrites_and_continues_in_the_copy`, `test_duplicate_copies_a_saved_scenario_without_opening_it`, `test_save_asks_before_replacing_a_different_saved_scenario` |
+| Draft restore after a simulated session loss | `test_unsaved_edits_survive_a_session_loss_and_can_be_restored`, `test_a_kept_draft_can_be_discarded`, `test_unsaved_edits_are_restored_after_a_refresh` (real backend), `test_state_drafts.py` (9) |
+| Expired coordinates stripped on load | `test_expired_coordinates_are_stripped_when_a_saved_scenario_is_loaded`, `test_fresh_coordinates_are_kept_and_drafts_are_cleaned_too`, `test_start_up_strips_expired_coordinates_and_records_the_schema` |
+| Version 1.0 saved scenario opens with defaults | `test_a_version_1_0_saved_scenario_opens_with_defaults` (stored as Version 1.0 saved it; forms show the defaults; it solves and keeps the Version 1.0 shape) |
+
+Also tested:
+
+- Plans with the same inputs share a fingerprint whatever the settings, names, or notes.
+- Delete removes plans and the draft.
+- Draft requests are checked, and drafts never keep Google matrices.
+- Google Maps links stay within Google's limits and chain correctly.
+- Attribution appears only for Google content.
+- Earlier plans can be viewed; a stale plan stays listed.
+- A refresh reopens the saved scenario named in the URL.
+
+### Manual checks
+
+Real API on uvicorn (scratch database, offline provider) and Streamlit, in the browser:
+
+- **Refresh mid-entry.**
+  - Renamed the feasible sample, then reloaded the page. The app offered "Unsaved changes to A (Week 26 inbound (manual check)) from Sat 21 Nov 18:33". Restore brought the edit back, and the sidebar still said the edits were unsaved.
+  - After solving, a further reload and restore also brought the plan back as current.
+- **Results.** The stop table shows names, POs, quantities with units, and plant-local times; there are no internal IDs.
+  - Fewest trucks: 1 of 6 truck-shifts, 216.0 km, longest route 7:33.
+  - Balanced workload: 3 of 6, 254.0 km, 4:07. Both match Build 019.
+- **Run sheet against the stop table.** The run sheet for the same plan and scenario matched the table on the page row for row: actions, location names, POs, quantities, arrive, start, and depart times, and loads.
+- **Google Maps link.**
+  - The link held 11 points in stop order, with repeated places merged.
+  - Google Maps opened it with the stops in the same order: plant, Scarborough, Oakville, Mississauga, Concord (Vaughan), plant, Concord, Mississauga, Unionville (Markham), Brampton, plant.
+  - The sample's coordinates are rounded fixture values, so Google labels them with nearby street addresses.
+- **Compare.** Both plans were listed, the earlier one marked "Inputs: Same" (only the settings and the name differed). It opened as an earlier plan, clearly dated.
+- **Scenario management.** Save, then Save as (the URL followed the new ID). Giving the copy the ID of the saved A showed the overwrite question; "Keep the saved one" left A unchanged. Duplicate made a new copy; Delete stayed disabled until ticked and removed only that copy.
+- **Processes.** Servers stopped afterwards; no solver worker or Streamlit process was left running.
+
+### Known issues
+
+- OR-Tools/SWIG deprecation warnings remain.
+- The M3 live-key manual check is still outstanding.
+- No embedded Google map (D1 allows one only with a separate embed key).
+- Phones may show fewer stops per Google Maps link than computers. The page says so.
+- Two browser tabs on the same scenario share one draft slot; the later change wins.
+- If the backend is unreachable when a refreshed page starts, the feasible sample opens and the draft is not offered; it stays on the backend.
+- The Optimize summary shows the server's time limit even for a Version 1.0 scenario. This is the M5 behaviour, unchanged.
+- `.env` was not read or changed.
+
+### Gate status
+
+- **V1.1-M6 COMPLETE.** Results are understandable without knowing any internal ID: every stop, PO, and reason is in planner terms, verified in tests and in the browser.
+- No data loss on refresh: unsaved edits are kept on the backend and restored, verified in tests (fake and real backend) and in the browser.
+- Clean working tree: PASS. The milestone was committed on branch `v1.1` at the user's request (2026-11-22).
+
+### Next action
+
+- Run the M3 live-key manual check when approved.
+- Start V1.1-M7 (hardening, documentation, release).
