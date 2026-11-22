@@ -24,7 +24,7 @@ from backend.app.routing.base import (
     RoutingOptions,
     RoutingProviderError,
 )
-from backend.app.routing.errors import RoutingErrorCode
+from backend.app.routing.errors import RoutingErrorCode, redact_secret
 from backend.app.routing.estimator import (
     MatrixBatch,
     RoutingLimits,
@@ -38,6 +38,30 @@ DURATION_PATTERN = re.compile(r"^(?P<seconds>\d+)(?:\.(?P<fraction>\d{1,9}))?s$"
 SleepFunction = Callable[[float], Awaitable[None]]
 JitterFunction = Callable[[float, float], float]
 NowFunction = Callable[[], datetime]
+MAX_PROVIDER_REASON_LENGTH = 300
+KEY_LIKE_PATTERN = re.compile(r"AIza[0-9A-Za-z_\-]{20,}")
+
+
+def provider_reason(text: object, *, secret: str | None = None) -> str | None:
+    """Google's own explanation of a rejection, made safe to show to the planner.
+
+    The key is removed (as given, URL-encoded, or anything shaped like a Google key),
+    the text is one line, and it is cut to a bounded length. Without a reason the
+    error still carries the stable code and the HTTP status. The reason is never
+    logged: a request echo could contain coordinates.
+    """
+    if not isinstance(text, str):
+        return None
+    cleaned = KEY_LIKE_PATTERN.sub("[REDACTED]", " ".join(redact_secret(text, secret).split()))
+    if not cleaned:
+        return None
+    if len(cleaned) > MAX_PROVIDER_REASON_LENGTH:
+        cleaned = cleaned[: MAX_PROVIDER_REASON_LENGTH - 1].rstrip() + "…"
+    return cleaned
+
+
+def with_reason(message: str, reason: str | None) -> str:
+    return f"{message} Google says: {reason}" if reason else message
 
 
 def quiet_transport_loggers() -> None:
@@ -170,7 +194,9 @@ class GoogleRoutingProvider:
             if retryable and attempt < self._maximum_attempts:
                 await self._wait_before_retry(attempt)
                 continue
-            raise RoutingProviderError(code, message)
+            raise RoutingProviderError(
+                code, with_reason(message, self._http_error_reason(response))
+            )
 
         raise AssertionError("bounded request loop ended unexpectedly")
 
@@ -202,6 +228,24 @@ class GoogleRoutingProvider:
             f"Google {operation} rejected the request with HTTP {status_code}.",
             False,
         )
+
+    def _http_error_reason(self, response: httpx.Response) -> str | None:
+        """The ``error.message`` of a Google error body, if it has one.
+
+        Routes answers ``{"error": {"code", "message", "status"}}``, sometimes wrapped
+        in a one-item list; the Geocoding API uses ``error_message``.
+        """
+        try:
+            body = response.json()
+        except ValueError:
+            return None
+        if isinstance(body, list) and len(body) == 1:
+            body = body[0]
+        if not isinstance(body, dict):
+            return None
+        error = body.get("error")
+        text = error.get("message") if isinstance(error, dict) else body.get("error_message")
+        return provider_reason(text, secret=self._api_key)
 
     @staticmethod
     def _response_json(response: httpx.Response, operation: str) -> Any:
@@ -335,15 +379,19 @@ class GoogleRoutingProvider:
                     self._address_hash(normalized_address),
                 )
                 return AddressResolution()
+            reason = provider_reason(payload.get("error_message"), secret=self._api_key)
             if status == "REQUEST_DENIED":
                 raise RoutingProviderError(
                     RoutingErrorCode.AUTH_ERROR,
-                    "Google geocoding authentication or API restrictions rejected the request.",
+                    with_reason(
+                        "Google geocoding authentication or API restrictions rejected the request.",
+                        reason,
+                    ),
                 )
             if status == "INVALID_REQUEST":
                 raise RoutingProviderError(
                     RoutingErrorCode.INVALID_REQUEST,
-                    "Google geocoding rejected an invalid address request.",
+                    with_reason("Google geocoding rejected an invalid address request.", reason),
                 )
             if status in {"OVER_DAILY_LIMIT", "OVER_QUERY_LIMIT"}:
                 if api_attempt < self._maximum_attempts:
@@ -351,7 +399,9 @@ class GoogleRoutingProvider:
                     continue
                 raise RoutingProviderError(
                     RoutingErrorCode.RATE_LIMIT,
-                    "Google geocoding quota was reached after bounded retries.",
+                    with_reason(
+                        "Google geocoding quota was reached after bounded retries.", reason
+                    ),
                 )
             if status == "UNKNOWN_ERROR" and api_attempt < self._maximum_attempts:
                 await self._wait_before_retry(api_attempt)
@@ -454,6 +504,15 @@ class GoogleRoutingProvider:
             raise RoutingProviderError(
                 RoutingErrorCode.INVALID_REQUEST,
                 "Route matrix location IDs must be unique.",
+            )
+        if options.departure_time is not None and options.departure_time <= self._now():
+            # Google rejects a past departure time for driving with HTTP 400; say why
+            # before sending anything.
+            raise RoutingProviderError(
+                RoutingErrorCode.INVALID_REQUEST,
+                "The departure time in the routing options is in the past, and Google "
+                "accepts only a future departure time for driving. Clear it, or choose a "
+                "later one, under Travel times > Advanced: routing options.",
             )
         batches = plan_matrix_batches(len(locations), self._limits, options)
         distances: list[list[int | None]] = [[None for _ in locations] for _ in locations]

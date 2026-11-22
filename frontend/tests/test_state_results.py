@@ -165,10 +165,26 @@ def test_problems_with_the_whole_plan_are_listed_apart_from_pos() -> None:
     assert plan_problems(plan, context) == [
         (
             "The search ran out of time.",
-            "Raise the time limit on the Optimize page and solve again.",
+            "Raise the time limit on the Optimize page, or split a large scenario (for "
+            "example one per day), and solve again.",
         )
     ]
     assert unscheduled_rows(plan, context) == []
+
+
+def test_a_partial_plan_cut_short_by_the_time_limit_says_more_may_fit() -> None:
+    plan = partial_plan(
+        diagnostics=[
+            {"task_id": "REQUEST", "po_number": "REQUEST", "code": "SOLVER_TIME_LIMIT_REACHED"},
+            *partial_plan()["diagnostics"],
+        ]
+    )
+    context = plan_context(sample_scenario())
+    ((reason, action),) = plan_problems(plan, context)
+    assert "time limit" in reason and "may fit after all" in reason
+    assert "Raise the time limit" in action and "split a large scenario" in action
+    # The note is about the whole plan: it is not listed as a PO left out.
+    assert all(row["PO"] != "REQUEST" for row in unscheduled_rows(plan, context))
 
 
 def test_settings_record_how_the_plan_was_made_and_credit_google() -> None:

@@ -25,10 +25,13 @@ from frontend.state.locations import (
     failed_ids,
     locations_in_order,
     merge_imported_locations,
+    merge_summaries,
     pending_ids,
     plant_coordinates,
     plant_id,
+    resolve_batches,
     resolve_rows,
+    result_coordinates,
     table_rows,
     used_by,
 )
@@ -59,6 +62,9 @@ from frontend.views.components import (
 )
 from frontend.views.imports import render_template_downloads
 from frontend.views.opening import saved_scenario_label, saved_scenarios
+
+DEFAULT_MAX_RESOLVE_ADDRESSES = 100
+"""The backend's per-request limit when its config is not known."""
 
 EDIT_KEY = "locations_edit_id"
 EDIT_NEXT_KEY = "locations_edit_next"
@@ -137,23 +143,49 @@ def _render_resolve_actions(ctx: AppContext) -> None:
 
 
 def _resolve(ctx: AppContext, location_ids: list[str]) -> None:
+    """Resolve in requests of at most the backend's limit, plant first.
+
+    The plant's match from the first request serves the far-from-plant check of the
+    later ones. If a later request fails, what was already resolved is kept.
+    """
     workspace = get_workspace()
     scenario = workspace.scenario
-    request_rows = resolve_rows(scenario, location_ids)
-    try:
-        response = ctx.client.resolve_locations(
-            request_rows,
-            plant_location_id=plant_id(scenario),
-            plant_coordinates=plant_coordinates(scenario, ctx.status.readiness, location_ids),
-        )
-    except BackendClientError as exc:
-        render_backend_error(exc)
+    plant = plant_id(scenario)
+    limit = DEFAULT_MAX_RESOLVE_ADDRESSES
+    if ctx.config is not None:
+        limit = int(ctx.config.limits.get("max_resolve_addresses", limit))
+    known_plant = plant_coordinates(scenario, ctx.status.readiness, location_ids)
+    results: list[dict[str, Any]] = []
+    sent: dict[str, str] = {}
+    summaries: list[Any] = []
+    failure: BackendClientError | None = None
+    for batch in resolve_batches(location_ids, plant=plant, size=limit):
+        request_rows = resolve_rows(scenario, batch)
+        try:
+            response = ctx.client.resolve_locations(
+                request_rows,
+                plant_location_id=plant,
+                plant_coordinates=None if plant in batch else known_plant,
+            )
+        except BackendClientError as exc:
+            failure = exc
+            break
+        batch_results = [
+            result for result in response.payload.get("results", []) if isinstance(result, dict)
+        ]
+        results.extend(batch_results)
+        sent.update({row["location_id"]: row["address"] for row in request_rows})
+        summaries.append(response.payload.get("summary"))
+        known_plant = known_plant or result_coordinates(batch_results, plant)
+    if results:
+        applied = apply_resolutions(scenario, results, sent_addresses=sent)
+        set_workspace(record_resolutions(workspace, applied.scenario, results, sent_addresses=sent))
+    if failure is not None:
+        if results:
+            st.warning(f"Kept the {len(results)} address(es) resolved before the error.")
+        render_backend_error(failure)
         return
-    results = [result for result in response.payload.get("results", []) if isinstance(result, dict)]
-    sent = {row["location_id"]: row["address"] for row in request_rows}
-    applied = apply_resolutions(scenario, results, sent_addresses=sent)
-    set_workspace(record_resolutions(workspace, applied.scenario, results, sent_addresses=sent))
-    set_flash("success", _resolve_summary(response.payload.get("summary")))
+    set_flash("success", _resolve_summary(merge_summaries(summaries)))
     st.rerun()
 
 

@@ -51,6 +51,9 @@ class FakeBackend:
         self.estimate_calls: list[list[dict[str, Any]]] = []
         self.resolve_calls: list[list[dict[str, Any]]] = []
         self.resolve_requests: list[dict[str, Any]] = []
+        self.resolve_failures: dict[int, api_client.BackendClientError] = {}
+        """Resolve call number (1-based) → the error that call raises."""
+        self.limits: dict[str, int] = {}
         self.import_calls: list[list[dict[str, Any]]] = []
         self.task_import_calls: list[list[dict[str, Any]]] = []
         self.extra_issues: list[dict[str, Any]] = []
@@ -110,7 +113,7 @@ class FakeBackend:
             geocode_max_plant_distance_km=500.0,
             matrix_confirm_elements=self.matrix_confirm_elements,
             solver_time_limit_seconds=10,
-            limits={},
+            limits=dict(self.limits),
             solver_max_time_limit_seconds=120,
         )
 
@@ -205,6 +208,9 @@ class FakeBackend:
         force_refresh: bool = False,
     ) -> api_client.ApiResult:
         self.resolve_calls.append(deepcopy(locations))
+        failure = self.resolve_failures.get(len(self.resolve_calls))
+        if failure is not None:
+            raise failure
         self.resolve_requests.append(
             {
                 "plant_location_id": plant_location_id,

@@ -2,6 +2,11 @@
 
 Release baseline: `v1.0.0`
 
+> This is the record of the v1.0.0 release, kept as it was. Later releases have their own
+> checklists, such as the [Version 1.1 release checklist](version_1_1_release_checklist.md),
+> and are validated by `scripts/validate_release.py`. The `scripts/validate_m9_release.py`
+> named below was retired in V1.1-M7; it remains in the `v1.0.0` tag.
+
 Because this workspace is not currently a Git repository, the Version 1 baseline
 is recorded by this checklist and the root `VERSION` file. If the project is
 later imported into Git, tag the passing commit as `v1.0.0`.

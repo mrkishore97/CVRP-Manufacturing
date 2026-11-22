@@ -26,7 +26,16 @@ from backend.app.optimization.task_expander import ExpandedTask, ExpandedTaskNod
 from backend.app.optimization.validator import validate_plan_result
 
 _LOAD_SCALE: Final = Decimal("1000")
+_ROUTING_PARTIAL_SUCCESS_LOCAL_OPTIMUM_NOT_REACHED: Final = 2
+_ROUTING_FAIL: Final = 3
 _ROUTING_FAIL_TIMEOUT: Final = 4
+_TIME_LIMIT_SHARE: Final = 0.95
+"""A search that found nothing after this share of its time limit ran out of time."""
+TIME_LIMIT_REACHED_CODE: Final = "SOLVER_TIME_LIMIT_REACHED"
+TIME_LIMIT_REACHED_MESSAGE: Final = (
+    "The search stopped at its time limit while it was still fitting POs in, so a longer "
+    "time limit may plan more of them."
+)
 _NO_DISTANCE_LIMIT: Final = 2**40
 """Route-distance capacity for trucks without a limit: about a billion kilometres."""
 
@@ -93,6 +102,8 @@ class _SolveAttempt:
     elapsed_seconds: float
     timed_out: bool
     objective_value: int | None = None
+    cut_short: bool = False
+    """A plan was found, but the time limit stopped the search before it settled."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +201,26 @@ def _with_priorities(
 
 def _routing_failure_status(*, timed_out: bool) -> PlanStatus:
     return PlanStatus.TIMEOUT if timed_out else PlanStatus.INFEASIBLE
+
+
+def _ran_out_of_time(
+    status: int, *, found: bool, searched_seconds: float, time_limit_seconds: int
+) -> bool:
+    """Whether a search that found no plan stopped because of its time limit.
+
+    OR-Tools reports ``ROUTING_FAIL_TIMEOUT`` when the limit stops the search. When the
+    limit is reached while it is still building a first solution, it can report a plain
+    ``ROUTING_FAIL`` instead: measured in V1.1-M7 on a 1,000-task scenario, status 3
+    after the full 30 s. A search that found nothing after using nearly all of its time
+    is therefore treated as out of time, not as proof that the POs cannot all fit.
+    """
+    if status == _ROUTING_FAIL_TIMEOUT:
+        return True
+    return (
+        not found
+        and status == _ROUTING_FAIL
+        and searched_seconds >= _TIME_LIMIT_SHARE * time_limit_seconds
+    )
 
 
 def _travel_distance(
@@ -364,8 +395,13 @@ class OrToolsCapacitySolver:
         )
         if len(result.scheduled_task_ids) == len(request.tasks):
             result = result.model_copy(update={"status": PlanStatus.FEASIBLE, "diagnostics": ()})
-        elif not result.scheduled_task_ids:
-            result = result.model_copy(update={"status": PlanStatus.INFEASIBLE})
+        else:
+            if not result.scheduled_task_ids:
+                result = result.model_copy(update={"status": PlanStatus.INFEASIBLE})
+            if relaxed_attempt.cut_short:
+                # The POs left out may fit after all: say so for the whole plan.
+                note = _diagnostic(code=TIME_LIMIT_REACHED_CODE, message=TIME_LIMIT_REACHED_MESSAGE)
+                result = result.model_copy(update={"diagnostics": (note, *result.diagnostics)})
         return self._validate_or_internal_error(request, result)
 
     def _validate_or_internal_error(
@@ -892,14 +928,26 @@ class OrToolsCapacitySolver:
             allow_dropping=allow_dropping,
         )
 
+        search_started = perf_counter()
         assignment = routing.SolveWithParameters(search_parameters(settings))
+        searched_seconds = perf_counter() - search_started
+        status = routing.status()
         return _SolveAttempt(
             assignment=assignment,
             manager=manager,
             routing=routing,
             elapsed_seconds=perf_counter() - started_at,
-            timed_out=routing.status() == _ROUTING_FAIL_TIMEOUT,
+            timed_out=_ran_out_of_time(
+                status,
+                found=assignment is not None,
+                searched_seconds=searched_seconds,
+                time_limit_seconds=settings.time_limit_seconds,
+            ),
             objective_value=int(assignment.ObjectiveValue()) if assignment is not None else None,
+            cut_short=(
+                assignment is not None
+                and status == _ROUTING_PARTIAL_SUCCESS_LOCAL_OPTIMUM_NOT_REACHED
+            ),
         )
 
     def _extract_solution(

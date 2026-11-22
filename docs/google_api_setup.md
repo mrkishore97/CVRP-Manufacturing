@@ -4,7 +4,7 @@ This app uses Google Maps Platform only from the backend. Do not place Google AP
 keys in Streamlit code, frontend session state, uploaded files, sample data,
 exports, or build logs.
 
-Official references checked for the Version 1 release:
+Official references, last checked on 2026-11-22 for Version 1.1:
 
 - [Google Maps Platform security guidance](https://developers.google.com/maps/api-security-best-practices)
 - [Routes API overview](https://developers.google.com/maps/documentation/routes)
@@ -12,6 +12,12 @@ Official references checked for the Version 1 release:
 - [Compute Route Matrix request guide](https://developers.google.com/maps/documentation/routes/compute_route_matrix)
 - [Geocoding API overview](https://developers.google.com/maps/documentation/geocoding/guides-v3/overview)
 - [Geocoding API setup](https://developers.google.com/maps/documentation/geocoding/guides-v3/get-api-key)
+- [Geocoding API policies](https://developers.google.com/maps/documentation/geocoding/policies)
+- [Routes API policies](https://developers.google.com/maps/documentation/routes/policies)
+- [Google Maps Platform pricing](https://developers.google.com/maps/billing-and-pricing/pricing)
+
+What each Google action costs, and how the app keeps the count down, is explained for planners in
+[Addresses and Google costs](addresses_and_costs.md).
 
 ## Required APIs
 
@@ -75,8 +81,10 @@ coordinates, or full provider responses.
 
 - Streamlit reruns do not trigger matrix calculations.
 - Matrix calculation happens only after an explicit button click or API call.
-- The backend caches route matrices using provider, ordered locations, travel
-  mode, routing preference, and departure bucket.
+- Google matrices are not cached or stored (decision D6, see below): within a session the
+  app reuses its current matrix, and a new session calculates again after showing the cost.
+  Matrices from the offline provider are still cached by provider, ordered locations,
+  travel mode, routing preference, and departure bucket.
 - Default Routes API batching limits are capped by environment settings:
   `ROUTES_MAX_ORIGINS`, `ROUTES_MAX_DESTINATIONS`, and `ROUTES_MAX_ELEMENTS`.
 - The app default maximum route-matrix element count is 625, matching the
@@ -110,9 +118,22 @@ treat its old log files as containing the key, delete them, and consider rotatin
 
 ## Google usage terms that shape Version 1.1
 
-Re-read on 2026-11-16 for milestone V1.1-M0. This section records how the app is designed
-around the terms; it is not legal advice. Re-check the live pages before each release,
-because wording and section numbers change.
+Re-read on 2026-11-16 for milestone V1.1-M0, and again on 2026-11-22 for the Version 1.1
+release (V1.1-M7). This section records how the app is designed around the terms; it is
+not legal advice. Re-check the live pages before each release, because wording and section
+numbers change.
+
+What the 2026-11-22 reading found, compared with M0:
+
+- Both policy pages now state the 30-day coordinate exception directly, listing the Routes
+  API and the Geocoding API among the services that grant it. Place IDs may still be kept
+  indefinitely.
+- "Distance matrix results" are still listed among content not to store outside the
+  Services, and no exception covers distances or durations, so decision D6 stands.
+- Attribution now asks for "Google Maps" rather than "Google", which is what the app
+  shows. Google prefers its logo, and for text attribution it also gives typography rules
+  (font, size 12 to 16 sp, colour, never wrapped or translated). The app shows the words in
+  its caption style; check them against the current rules before a production deployment.
 
 Sources:
 
@@ -130,16 +151,22 @@ Sources:
 | Geocoding latitude/longitude may be cached for at most 30 consecutive calendar days, then deleted. | Policy page, read directly | Decision D2: geocode cache and stored coordinates carry `geocoded_at`; anything older than 30 days is not used and is re-resolved (plan §8.6). Since V1.1-M1 the cache TTL cannot exceed 30 days, expired rows are purged at start-up, and validation warns `GEOCODE_EXPIRED`. |
 | Place IDs may be stored indefinitely. | Policy page, read directly | Place IDs are kept with each location. |
 | Geocoding API content must not be used in conjunction with a non-Google map. | *(terms, via search)* | Decision D1: Google-derived locations are shown only through Google — an "Open route in Google Maps" link per truck, and an embedded Google map only if a separate browser-restricted embed key is configured. The Folium/OpenStreetMap map remains only for scenarios whose coordinates were supplied in JSON (such as the samples). |
-| Routes API latitude/longitude may be cached for at most 30 days. | *(terms, via search)* | Same 30-day ceiling as geocodes. |
+| Routes API latitude/longitude may be cached for at most 30 days. | Policy page, read directly (2026-11-22) | Same 30-day ceiling as geocodes. |
 | Routes API distances and durations: no express permission to cache was found; the policy page lists "distance matrix results" among content not to bulk-download or store outside the Services. | Policy page read directly; terms not readable | **Decision D6, option (a), settled 2026-11-18** (plan §4). Since V1.1-M3, Google matrices are stored nowhere:<br>• not in the matrix cache;<br>• not in saved scenarios (the backend drops an embedded Google matrix and says so);<br>• not in the app's JSON downloads.<br>At backend start, Google matrices that Version 1.0 cached or saved are removed. Matrices from fixtures or the offline provider are unaffected. Within a session the app reuses its current matrix and recalculates only on an explicit click. |
-| Content shown in the app needs Google attribution unless it is on a Google map that already shows it. | Policy pages, read directly | Results that show Google-derived data carry a "Travel times and addresses: Google" attribution (M6). |
+| Content shown in the app needs Google Maps attribution unless it is on a Google map that already shows it. | Policy pages, read directly | Since V1.1-M6, "Matched addresses: Google Maps" and "Travel times: Google Maps" appear on the Scenario, Locations, Travel times, and Results pages, and in exports, wherever that content comes from Google. |
 
 Google's support pages state they cannot give legal advice; consult legal counsel before a
 production deployment.
 
 ## Failure handling
 
-Common recovery actions:
+Since V1.1-M7 a rejection's message ends with "Google says: …", Google's own reason taken
+from its error body. The key is removed from it (as sent, URL-encoded, or anything shaped
+like a Google key), it is cut to one line of at most 300 characters, and it is shown to the
+planner but never written to the log. A departure time in the past is refused before any
+request is sent, because Google rejects it for driving.
+
+Common recovery actions (more in [troubleshooting](troubleshooting.md#google-errors)):
 
 - `GOOGLE_API_KEY_MISSING`: set `GOOGLE_MAPS_API_KEY` in backend environment.
 - invalid key or IP restriction: verify the key value, API restrictions, and

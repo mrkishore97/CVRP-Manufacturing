@@ -42,7 +42,8 @@ STATUS_TEXT: Mapping[str, tuple[str, str]] = {
     "TIMEOUT": (
         "warning",
         "The search ran out of time before it found a plan. Raise the time limit on the "
-        "Optimize page and solve again.",
+        "Optimize page, or split a large scenario (for example one per day), and solve "
+        "again.",
     ),
     "INTERNAL_ERROR": (
         "error",
@@ -97,7 +98,14 @@ REASONS: Mapping[str, tuple[str, str]] = {
     ),
     "SOLVER_TIMEOUT": (
         "The search ran out of time.",
-        "Raise the time limit on the Optimize page and solve again.",
+        "Raise the time limit on the Optimize page, or split a large scenario (for example "
+        "one per day), and solve again.",
+    ),
+    "SOLVER_TIME_LIMIT_REACHED": (
+        "The search stopped at its time limit while it was still fitting POs in, so some "
+        "of the POs left out may fit after all.",
+        "Raise the time limit or choose Thorough search on the Optimize page, or split a "
+        "large scenario (for example one per day), and solve again.",
     ),
     "SOLVER_INFEASIBLE": (
         "No set of POs could be planned within the shifts, capacities, and due times.",

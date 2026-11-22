@@ -144,6 +144,42 @@ def plant_coordinates(
     return {"latitude": float(latitude), "longitude": float(longitude)}
 
 
+def resolve_batches(location_ids: Sequence[str], *, plant: str, size: int) -> list[list[str]]:
+    """Requests of at most ``size`` locations, the plant first so its match is known early."""
+    if size < 1:
+        raise ValueError("size must be at least 1")
+    ordered = sorted(location_ids, key=lambda location_id: location_id != plant)
+    return [ordered[start : start + size] for start in range(0, len(ordered), size)]
+
+
+def result_coordinates(
+    results: Sequence[Mapping[str, Any]], location_id: str
+) -> dict[str, float] | None:
+    """The coordinates a resolve result gave ``location_id``, if it has them."""
+    for result in results:
+        if result.get("location_id") != location_id:
+            continue
+        latitude, longitude = result.get("latitude"), result.get("longitude")
+        if isinstance(latitude, int | float) and isinstance(longitude, int | float):
+            return {"latitude": float(latitude), "longitude": float(longitude)}
+    return None
+
+
+SUMMARY_COUNTS = ("resolved", "needs_review", "failed", "provider_calls", "cache_hits")
+
+
+def merge_summaries(summaries: Sequence[Any]) -> dict[str, int]:
+    """One summary for several resolve requests: the counts added up."""
+    merged = dict.fromkeys(SUMMARY_COUNTS, 0)
+    for summary in summaries:
+        if isinstance(summary, Mapping):
+            for key in SUMMARY_COUNTS:
+                value = summary.get(key)
+                if isinstance(value, int):
+                    merged[key] += value
+    return merged
+
+
 @dataclass(frozen=True, slots=True)
 class AppliedResolutions:
     scenario: Scenario

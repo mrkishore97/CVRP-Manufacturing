@@ -1,7 +1,6 @@
 # SQLite backup and restore guide
 
-Version 1 stores scenarios, plans, and route-matrix cache entries in a local
-SQLite database.
+The app stores its data in one local SQLite database.
 
 Default path:
 
@@ -13,12 +12,24 @@ The path can be changed with `DATABASE_PATH`.
 
 ## What is stored
 
-- Saved scenario payloads.
-- Saved plan results.
-- Cached route matrices.
+- Saved scenarios.
+- Solved plans: the newest `PLAN_HISTORY_LIMIT` (default 20) per scenario.
+- Kept unsaved edits (drafts), one per scenario, until saved or discarded.
+- The address cache: Google's matches for up to 30 days, keyed by a hash, without the
+  address text. Expired rows are removed at every backend start.
+- Cached travel times from the offline provider. Google travel times are never stored
+  (decision D6).
+- The schema version (`schema_meta`, version 2 since Version 1.1).
 
-The database should not store Google API keys. Keys belong only in backend
-environment configuration or the ignored local `.env` file.
+The database never stores Google API keys. Keys belong only in backend environment
+configuration or the ignored local `.env` file.
+
+At every start the backend removes Google content its terms do not allow it to keep:
+Google travel times (from Version 1.0 databases) and coordinates older than 30 days. A
+restored backup is cleaned the same way when the backend next starts.
+
+Before upgrading from Version 1.0, take a backup: the first Version 1.1 start adds tables
+and removes Google travel times, as described in [Deployment](deployment.md#upgrading-from-version-10).
 
 ## Backup while the app is stopped
 

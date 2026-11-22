@@ -2,7 +2,7 @@
 
 **Plan revision:** 2 — rewritten from scratch; replaces the obsolete draft dated 2026-07-16  
 **Date:** 2026-11-16  
-**Status:** Decisions D1–D5 settled on 2026-11-16; D6 settled on 2026-11-18 (option a). V1.1-M0 (Build 014) to V1.1-M6 (Build 020) complete on branch `v1.1`; the M3 live-key manual check is still to run  
+**Status:** Decisions D1–D5 settled on 2026-11-16; D6 settled on 2026-11-18 (option a). V1.1-M0 (Build 014) to V1.1-M7 (Build 021) complete on branch `v1.1`; `VERSION` is 1.1.0 and the tag `v1.1.0` follows acceptance; the live-key manual check is still to run  
 **Baseline:** tag `v1.0.0` (`2d93b2d`) — 143 automated tests passing when re-run on 2026-11-16  
 **Related records:** `project_plan.md` (Version 1.0 plan, stays unchanged), `build_log.md`
 
@@ -825,7 +825,7 @@ Eight milestones. The two must-have outcomes land in M3 (address-only) and M4 (f
 | V1.1-M4 | Fleet, shifts, tasks, import, review — forms complete | L | Complete |
 | V1.1-M5 | Optimization options and Optimize page | M | Complete |
 | V1.1-M6 | Results, plan history, scenario management, exports | M | Complete |
-| V1.1-M7 | Hardening, documentation, release | S | Pending |
+| V1.1-M7 | Hardening, documentation, release | S | Complete (tag after acceptance) |
 
 ### V1.1-M0 — Baseline, decisions, safety net
 
@@ -981,9 +981,34 @@ Status (Build 020): automated checks pass. Manual run in the browser, offline pr
 
 **Release gate:** every criterion in §16 passes; no open critical or high defect; skipped checks documented.
 
+Status (Build 021): the release gate passes; see `docs/version_1_1_release_checklist.md`. As built:
+
+- **Version.** `VERSION` is 1.1.0, read by the package, the health endpoint, and OpenAPI. The tag `v1.1.0` is made after acceptance.
+- **Release script.** `scripts/validate_release.py` replaces `validate_m9_release.py`. It finds the version, the changelog section, the checklist, the plan's §16 criteria, and the traceability matrix from `VERSION`. It checks that every criterion is traced and every cited test exists, and scans tracked files, logs, exports, and the database for keys. Tests show each check failing on a broken input.
+- **Size test.** A week for 20 trucks (100 truck-shifts), 100 locations, and 300 POs is built through the forms' state functions. It resolves, calculates, and solves completely at the default 10 s, then renders in the app and exports. A request at 200 locations and 1,000 tasks is accepted; one more is refused.
+- **Measured sizes** (development workstation, defaults): 200 POs in a day and 300 in a week plan completely at 10 s. 500 POs in a week need the 120 s maximum, and 1,000 run out of time even then. `docs/troubleshooting.md` → "Scenario size" turns this into guidance: split by day.
+- **Hardening found by the size test.** OR-Tools reported a plain failure, not a timeout, when the strict search used its whole limit without a first plan. Version 1.0's check then returned a partial plan blaming fleet time (108 of 1,000 POs on 10 of 100 truck-shifts). Such a search now counts as out of time. A partial plan whose search was cut short by the limit carries a plan-level note (`SOLVER_TIME_LIMIT_REACHED`).
+- **Hardening of Google errors.** A rejection's message ends with Google's own reason, with the key removed, on one line, at most 300 characters, and never logged. A departure time in the past is refused before sending, and the Travel times page says so before calculating.
+- **Hardening of limits.** Addresses are resolved in requests within `API_MAX_GEOCODE_ADDRESSES`, plant first. A travel-time calculation above 100 locations is explained instead of failing with a contract error.
+- **Documentation.** The README is a first-time user's guide. New: a page-by-page user guide, an addresses and Google costs guide, an objectives and priorities guide, `CHANGELOG.md`, the Version 1.1 traceability matrix, and release checklist. Troubleshooting, Google setup (terms re-read 2026-11-22), deployment (upgrading from Version 1.0), backup, and `.env.example` are updated.
+- **Manual acceptance** (browser, offline provider):
+  - The README walkthrough built, resolved, solved, exported, and saved a new scenario.
+  - Version 1.0 Scenario A, pasted as JSON, solved as in Version 1.0 and saved.
+  - V11-F gave a partial plan keeping the Critical and High POs, with reasons for the rest.
+- **Skipped:** the live-key check (billable; needs a go-ahead), a clean install, and links on a phone.
+
 ## 15. Test fixtures
 
 Version 1.0 fixtures A–H stay unchanged. New fixtures live in `sample_data/v1_1/`. V11-A was added in M3, V11-F to V11-I in M4, and V11-E in M5. They reuse the canonical locations and travel times, trimmed to the locations each uses, so they solve offline.
+
+As built: V11-B, V11-C, V11-D, and V11-J became tests rather than files.
+
+- **V11-B** is the frozen Version 1.0 payloads in `sample_data/v1_0_compat/`.
+- **V11-C** is the form-to-JSON round-trip tests.
+- **V11-D** is the classification tests, with the offline provider's configured answers.
+- **V11-J** is the freshness-table tests.
+
+M7 adds the size scenario (`backend/tests/fixtures/size_scenario.py`), generated through the forms' state functions.
 
 | Fixture | Content | Proves |
 |---|---|---|
@@ -1058,6 +1083,7 @@ Version 1.1 is complete when all of the following hold.
 | Thorough search results vary between machines | Flaky tests, confused users | Property-based tests; plan records effort and time used | M5 |
 | Buffer applied inconsistently | Validator rejects good plans or passes late ones | One buffered matrix shared by solver, pre-check, and validator | M5 |
 | Long solves block the API | UI appears frozen | Off-event-loop solving; client timeout derived from the time limit | M0, M5 |
+| A large scenario runs out of time | Misleading partial plan, or none | Out-of-time detection, a note on partial plans cut short, measured size guidance, split by day | M7 |
 | Google terms on caching and map display | Compliance exposure | D1/D2; 30-day ceiling in configuration; terms re-read in M0 | M0, M1, M6 |
 | Scope growth delays the must-haves | Late release | Must-haves complete by M4; "could" items never gate | All |
 | Import partly applied | Corrupt task list | All-or-nothing apply | M4 |
@@ -1081,7 +1107,7 @@ Focused runs during a milestone:
 & .\.venv\Scripts\python.exe -m pytest frontend/tests -q
 ```
 
-Release (added in M7): `scripts/validate_release.py`. Live Google checks remain separate, explicit, and optional.
+Release (added in M7): `scripts/validate_release.py`, driven by `VERSION`. Live Google checks remain separate, explicit, and optional. The full list is in `docs/version_1_1_release_checklist.md`.
 
 ## 19. Working rules
 
@@ -1135,9 +1161,10 @@ Nothing requested was dropped. Bulk grid editing, incremental matrix refresh, a 
 
 ## 21. Immediate next step
 
-V1.1-M0 (Build 014) to V1.1-M6 (Build 020) are complete on branch `v1.1`. Both must-have outcomes are delivered: address-only locations (M3) and forms for every input (M4).
+V1.1-M0 (Build 014) to V1.1-M7 (Build 021) are complete on branch `v1.1`, and the release gate passes. Both must-have outcomes are delivered: address-only locations (M3) and forms for every input (M4).
 
 Next:
 
-- The M3 live-key manual check, once there is a go-ahead for billable Google calls.
-- **V1.1-M7**: hardening, documentation, and release.
+- Acceptance of Version 1.1, then the tag `v1.1.0` on the accepted commit.
+- The live-key manual check, once there is a go-ahead for billable Google calls.
+- Version 1.2 candidates (§3.4): location opening hours and driver breaks.

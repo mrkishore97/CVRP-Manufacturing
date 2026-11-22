@@ -3,7 +3,7 @@
 **Purpose:** Chronological implementation and verification record  
 **Project plan:** `project_plan.md` (Version 1.0); `project_plan_v1.1.md` (Version 1.1, from Build 014)  
 **Started:** 2026-06-21  
-**Current milestone:** Version 1.1 — V1.1-M6 complete on branch `v1.1` (M3 live-key manual check outstanding); next V1.1-M7
+**Current milestone:** Version 1.1 — V1.1-M7 complete on branch `v1.1`; release gate passed, `VERSION` 1.1.0, tag `v1.1.0` after acceptance (live-key manual check outstanding)
 
 ## Logging rules
 
@@ -1908,3 +1908,144 @@ Real API on uvicorn (scratch database, offline provider) and Streamlit, in the b
 
 - Run the M3 live-key manual check when approved.
 - Start V1.1-M7 (hardening, documentation, release).
+
+## 2026-11-22 — Build 021 — V1.1-M7 — Hardening, documentation, release
+
+Plan: `project_plan_v1.1.md` §14, V1.1-M7 (release gate in §16).
+
+### Scope
+
+- Full regression pass.
+- Representative size test: a form-built scenario at the documented limits.
+- Release validation driven by `VERSION`.
+- Documentation:
+  - the README and a user guide by page;
+  - an address-resolution and cost guide, and an objective and priority guide;
+  - troubleshooting, limitations, and Google setup.
+- Requirements traceability for Version 1.1, a release checklist, and the version bump.
+- The tag `v1.1.0` follows acceptance.
+
+### Decisions
+
+- **Version bump now, tag after acceptance.** The plan says "version bump and tag `v1.1.0` after your acceptance". `VERSION` is set to 1.1.0 in this build, so the release script, checklist, and changelog describe the release being accepted. The tag, the outward-facing step, waits for acceptance.
+- **Deferred items stay deferred.** The live-key check and the multi-day shift end date were set aside by the project owner. The first needs a go-ahead for billable calls; the second is a form feature, documented as a limitation (shifts over 24 hours need JSON).
+- **The HTTP 400 met in M5.** It cannot be diagnosed without the live key. M7 makes it diagnosable: the message now carries Google's reason, and the one likely cause found in the code, a past departure time, is refused before sending.
+
+### Changes
+
+- **Solver: running out of time** (`optimization/solver.py`)
+  - *Found by the size test.* With 1,000 tasks and a 30 s limit, the strict search used all 30 s without a first plan, and OR-Tools reported a plain `ROUTING_FAIL` (status 3), not `ROUTING_FAIL_TIMEOUT`.
+  - Version 1.0's check took that as "not everything fits" and returned a partial plan: 108 of 1,000 POs on 10 of 100 truck-shifts, blaming "not enough fleet time" for the other 892.
+  - A search that found nothing after using at least 95 % of its limit now counts as out of time, so the result is `TIMEOUT`, as Version 1.0 intended.
+  - A partial plan whose search was stopped by the limit (OR-Tools status 2, local optimum not reached) gets a plan-level note, `SOLVER_TIME_LIMIT_REACHED`, saying more POs may fit. The per-PO reasons are unchanged.
+  - Fixtures A–F and all earlier tests are unaffected.
+- **Google errors** (`routing/google.py`)
+  - A rejected request's message now ends with "Google says: …", taken from Google's error body: `error.message` for Routes, and `error_message` for Geocoding statuses.
+  - The key is removed (as sent, URL-encoded, or anything shaped like a Google key), the reason is one line of at most 300 characters, and it is never logged.
+  - A departure time in the past is refused before any request, with the fix named.
+- **Limits in the app** (`frontend/views/locations.py`, `travel_times.py`, `state/locations.py`)
+  - Addresses are resolved in requests within the backend's `max_resolve_addresses`, plant first. The plant's match serves the far-from-plant check of later requests, and a failure part-way keeps what was already resolved.
+  - Travel times above `max_matrix_locations` (100) are explained before anything is sent, instead of failing with a contract error.
+  - A departure time in the past is explained on the page and refused by the routing-options form.
+  - The Results reasons gain the time-limit note and say "split a large scenario" for timeouts.
+- **Release script** (`scripts/validate_release.py`, new; `scripts/validate_m9_release.py` removed)
+  - Everything is derived from `VERSION`: the package, health, and OpenAPI versions (on a temporary database, without `.env`); the `CHANGELOG.md` section; `docs/version_X_Y_release_checklist.md` against the plan's §16 criteria, with no failing row; and `docs/requirements_traceability_vX_Y.md`, where every criterion is traced and every cited test exists.
+  - It checks the README's guide links and the Google setup guide's official links.
+  - It scans tracked and new files, `logs/`, `exports/`, and the database for Google keys, and checks `.gitignore`.
+  - The Version 1.0 checklist notes that it is the v1.0.0 record.
+- **Version:** `VERSION` 1.1.0.
+- **Documentation**
+  - `README.md` rewritten as a first-time user's quick start: install, key, start, try a sample, plan your own work.
+  - New guides: `docs/user_guide.md` (page by page), `docs/addresses_and_costs.md`, and `docs/objectives_and_priorities.md`.
+  - New release records: `CHANGELOG.md`, `docs/requirements_traceability_v1_1.md`, and `docs/version_1_1_release_checklist.md`.
+  - `docs/troubleshooting.md` rewritten for Version 1.1: Google errors with their reasons, addresses, travel times, solving, refresh, measured scenario size, and known limitations.
+  - `docs/google_api_setup.md`: the policy pages were re-read on 2026-11-22. The matrix-cache text is corrected for D6, and the error reasons are described.
+  - `docs/deployment.md` gains the Version 1.1 settings and "Upgrading from Version 1.0". `docs/backup_restore.md` lists what is stored now. `.env.example` gains the request limits.
+- **Tests (new)**
+  - `backend/tests/fixtures/size_scenario.py`: the size scenario, through the forms' state functions.
+  - `backend/tests/integration/test_v1_1_m7_size.py` (2): the size test, and requests at the limits.
+  - `backend/tests/unit/optimization/test_solver_v1_1_m7.py` (8, with parameters).
+  - `backend/tests/integration/routing/test_v1_1_m7_google_errors.py` (8, with parameters).
+  - `backend/tests/unit/test_release_validation.py` (7).
+  - `frontend/tests/test_m7_pages.py` (6).
+  - One more Results state test. The fake backend gains limits and a resolve failure hook.
+
+### Measurements
+
+The size probe runs on the development workstation with default settings (fewest trucks, standard search). The scenario has 100 locations within about 50 km of a Mississauga plant, 20 trucks on 06:00–18:00 weekday shifts, and POs ready at 06:00 and due at 17:00:
+
+| Scenario | Limit | Before the fix | After the fix |
+|---|---|---|---|
+| 1 day, 20 truck-shifts, 200 POs | 10 s | — | Feasible, all planned, 12 s |
+| 1 week, 100 truck-shifts, 300 POs | 10 s | Feasible, 12 s | Feasible, all planned, 13 s |
+| 1 week, 500 POs | 30 s | Partial plan, 62 s, fleet blamed | Timeout, 32 s |
+| 1 week, 500 POs | 120 s | — | Feasible, all planned, 123 s |
+| 1 week, 1,000 POs | 30 s | Partial plan, about 100 planned on 9 or 10 truck-shifts, 62 s | Timeout (covered by a test at 1 s) |
+| 1 week, 1,000 POs | 120 s | Partial plan, 46 truck-shifts, 243 s | Timeout, 122 s |
+
+Building 1,000 tasks one by one through the form functions takes 14 s. That is fine for the forms, which add one at a time; imports apply in one pass.
+
+At the request limits, the solve payload is 0.54 MB for 1,000 tasks with a 100-location matrix. The 300-PO week saved with its matrix is under 0.5 MB. Both are well within `API_MAX_REQUEST_BYTES` (2 MB).
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| `python -m ruff format --check .` | PASS | |
+| `python -m ruff check .` | PASS | |
+| `python -m mypy backend frontend` | PASS | No issues in 176 source files. |
+| `python -m pytest -q` | PASS | **781 passed** (749 before, 32 new). Same 3 OR-Tools/SWIG warnings. |
+| Characterization tests A–F | PASS | Unchanged. |
+| `python scripts/validate_m0.py` | PASS | 672 checks. |
+| `python scripts/review_m2_payloads.py` | PASS | |
+| `python scripts/smoke_m1.py` | PASS | `DATABASE_PATH` set to a scratch file. |
+| `python scripts/validate_release.py` | PASS | "RELEASE VALIDATION PASSED for v1.1.0"; no key in 234 scanned files. |
+| `python -m pip check` | PASS | |
+| Real database untouched | PASS | Modification time unchanged across every run (2026-11-21 18:06, from Build 020). |
+
+### Manual checks
+
+Real API on uvicorn (scratch database, an offline provider answering any address and computing travel times for any locations) and Streamlit, in the browser:
+
+- **README alone.**
+  - The app opened on the feasible sample, which solved as in Build 020 (1 of 6 truck-shifts, 216.0 km).
+  - Following step 5 built a new scenario, "Week 50 deliveries":
+    - a plant and two locations by address, then Resolve addresses ("3 resolved, 3 Google lookups");
+    - Truck 1 and a generated Monday shift (the period extended itself);
+    - a pickup and a drop, after which the scenario was valid with no warnings.
+  - The Travel times page showed 3 locations, 9 elements, and 1 request before calculating.
+  - The solve planned 2 of 2 POs (71.8 km). Results showed the Google Maps link and no OpenStreetMap preview for resolved addresses, and offered every export. The scenario saved.
+- **Version 1.0 JSON.**
+  - Unmodified Scenario A (`sample_data/v1_0_compat/scenario_a.json`) was pasted into Advanced JSON and applied with its own travel times.
+  - It solved to 1 of 6 truck-shifts, 216.0 km, as in Version 1.0, and saved as A ("7 locations, 6 tasks, 2 plans").
+  - A first paste had arrived as "[object Object]" (a quirk of the browser tool), and the app refused it with "Nothing was applied. JSON line 1, column 2". That also showed invalid JSON never replacing the scenario.
+- **Impossible workload.**
+  - V11-F solved to 2 of 6. The Critical PO-F05 and High PO-F04 were planned.
+  - The four left out were listed as 3 Important, 2 Normal, 1 Routine, 1 Routine, each with its reason. There was no time-limit note, because the search settled within its limit.
+- **Secrets.** `validate_release.py` found no key in its scan of tracked and new files, logs, exports, and the database.
+- **Google terms.** The Geocoding and Routes policy pages were re-read on 2026-11-22 (see `docs/google_api_setup.md`). Nothing changes the design:
+  - coordinates may be kept for at most 30 days, and place IDs indefinitely;
+  - "distance matrix results" are still not to be stored, so D6 stands;
+  - attribution is now "Google Maps", which the app shows.
+- **Processes.** Servers stopped afterwards; no scratch process was left running.
+
+### Known issues
+
+- OR-Tools/SWIG deprecation warnings remain.
+- The live-key manual check is still outstanding (billable; needs a go-ahead). The M5 HTTP 400 is therefore not re-tested live; its message now carries Google's reason.
+- The other lower-severity issues are listed in `docs/version_1_1_release_checklist.md`. None is critical or high.
+- `.env` was not read or changed.
+
+### Gate status
+
+- **V1.1-M7 COMPLETE; the Version 1.1 release gate passes.**
+  - Every criterion in §16 passes, with criteria 8 and 12 on the offline provider and mocked Google HTTP.
+  - No critical or high defect is open: the three found in M7 were fixed here.
+  - Skipped checks are documented in the release checklist.
+- Clean working tree: PASS. The milestone was committed on branch `v1.1` at the user's request (2026-11-22).
+- Tag `v1.1.0`: after acceptance.
+
+### Next action
+
+- Accept Version 1.1, then tag `v1.1.0`.
+- Run the live-key manual check when approved.

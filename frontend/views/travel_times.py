@@ -8,7 +8,7 @@ Google travel times are kept only for this session (decision D6).
 
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import date, datetime, time
 from typing import Any
 
 import streamlit as st
@@ -18,7 +18,14 @@ from frontend.state.locations import unused_ids
 from frontend.state.readiness import USABLE_READINESS
 from frontend.state.results import GOOGLE_MATRIX_SOURCE
 from frontend.state.scenario_state import ScenarioEditError, set_fields
-from frontend.state.timeutil import format_local, local_iso, split_for_form, wall_clock_text
+from frontend.state.timeutil import (
+    format_local,
+    local_iso,
+    parse_datetime_text,
+    split_for_form,
+    to_local,
+    wall_clock_text,
+)
 from frontend.state.workspace import (
     activate_embedded_matrix,
     current_estimate,
@@ -44,6 +51,8 @@ CONFIRM_LARGE_KEY = "confirm_large_matrix"
 CONFIRM_FORCE_KEY = "confirm_force_refresh"
 CONFIRM_ROUND_KEY = "travel_confirm_round"
 """Bumped after each calculation, so every confirmation box starts unticked again."""
+DEFAULT_MAX_MATRIX_LOCATIONS = 100
+"""The backend's limit when its config is not known (``GET /config`` → limits)."""
 PREFERENCE_LABELS = {
     "TRAFFIC_UNAWARE": "Typical driving times (no live traffic)",
     "TRAFFIC_AWARE": "With traffic at the departure time",
@@ -133,6 +142,11 @@ def _render_calculate(ctx: AppContext) -> None:
         st.caption(_why_not(ctx))
         st.button("Calculate travel times", disabled=True, key="calculate-disabled")
         return
+    blocker = _calculation_blocker(ctx)
+    if blocker:
+        st.warning(blocker)
+        st.button("Calculate travel times", disabled=True, key="calculate-blocked")
+        return
     estimate = _estimate(ctx)
     if estimate is None:
         return
@@ -211,6 +225,7 @@ def _render_advanced(ctx: AppContext) -> None:
                 preference=str(chosen),
                 departure=(departure_day, departure_time) if use_departure else None,
                 timezone=timezone,
+                now=ctx.now,
             )
 
         st.markdown("**Recalculate**")
@@ -236,6 +251,7 @@ def _save_options(
     preference: str,
     departure: tuple[Any, Any] | None,
     timezone: str,
+    now: datetime,
 ) -> None:
     options: dict[str, Any] = {}
     if preference != "TRAFFIC_UNAWARE":
@@ -249,6 +265,9 @@ def _save_options(
             options["departure_time"] = local_iso(wall_clock_text(day, clock), timezone)
         except ValueError as exc:
             st.error(str(exc))
+            return
+        if to_local(options["departure_time"], timezone) <= now:
+            st.error("Choose a departure time in the future: Google rejects one in the past.")
             return
     try:
         updated = set_fields(scenario, routing_options=options or None)
@@ -320,6 +339,44 @@ def _cache_text(estimate: dict[str, Any]) -> str:
     if estimate.get("cache_enabled") is False:
         return "Not stored"
     return "Not cached"
+
+
+def _calculation_blocker(ctx: AppContext) -> str | None:
+    """Why a calculation would be refused before it is sent, in planner words."""
+    scenario = get_workspace().scenario
+    locations = scenario.get("locations")
+    count = len(locations) if isinstance(locations, list) else 0
+    limit = DEFAULT_MAX_MATRIX_LOCATIONS
+    if ctx.config is not None:
+        limit = int(ctx.config.limits.get("max_matrix_locations", limit))
+    if count > limit:
+        return (
+            f"Travel times can be calculated for at most {limit} locations at a time, and "
+            f"this scenario has {count}. Delete locations that no task or shift uses, or "
+            "split the scenario into smaller ones."
+        )
+    departure = past_departure(scenario, ctx.now)
+    if departure is not None:
+        return (
+            f"The departure time under Advanced ({departure}) is in the past, and Google "
+            "accepts only a future one. Clear it or choose a later time before calculating."
+        )
+    return None
+
+
+def past_departure(scenario: dict[str, Any], now: datetime) -> str | None:
+    """The routing options' departure time as plant-local text, if it has passed."""
+    options = scenario.get("routing_options")
+    departure = options.get("departure_time") if isinstance(options, dict) else None
+    if not isinstance(departure, str) or not departure:
+        return None
+    timezone = str(scenario.get("timezone") or "America/Toronto")
+    try:
+        instant = parse_datetime_text(departure)
+        local = to_local(instant, timezone)
+    except ValueError:
+        return None
+    return format_local(departure, timezone) if local <= now else None
 
 
 def _why_not(ctx: AppContext) -> str:
