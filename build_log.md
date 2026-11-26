@@ -3,7 +3,7 @@
 **Purpose:** Chronological implementation and verification record  
 **Project plan:** `project_plan.md` (Version 1.0); `project_plan_v1.1.md` (Version 1.1, from Build 014)  
 **Started:** 2026-06-21  
-**Current milestone:** Version 1.1 — V1.1-M7 complete on branch `v1.1`; release gate passed, `VERSION` 1.1.0, tag `v1.1.0` after acceptance (live-key manual check outstanding)
+**Current milestone:** Version 1.1 — V1.1-M7 complete on branch `v1.1`; release gate passed, `VERSION` 1.1.0, tag `v1.1.0` after acceptance. Streamlit Community Cloud readiness on branch `streamlit-cloud` (Build 022). Outstanding: the live-key manual check and the Linux (Docker) tests.
 
 ## Logging rules
 
@@ -2049,3 +2049,106 @@ Real API on uvicorn (scratch database, an offline provider answering any address
 
 - Accept Version 1.1, then tag `v1.1.0`.
 - Run the live-key manual check when approved.
+
+## 2026-11-25 — Build 022 — Streamlit Community Cloud readiness
+
+Outside the plan's milestones. Requested and approved by the project owner, point by point, on branch `streamlit-cloud`, which was taken from `v1.1` at `d68d651`.
+
+### Scope
+
+- Run the app on Streamlit Community Cloud, which runs a single `streamlit run` process.
+- Point 2, one process: the API runs inside the Streamlit process.
+- Point 3, imports: a root entry file, so nothing has to be installed.
+- Point 4, dependencies: `requirements.txt`, with a consistency test.
+- Point 5, storage: documented as temporary, with no implementation.
+- Points 6 and 7 (Google cost of a public app, and machine size) were set aside by the project owner.
+
+### Decisions (approved by the project owner)
+
+- **An isolated launcher.** All Cloud-specific startup is in the root `streamlit_app.py`.
+  - No deployment mode, setting, or new layer. Which file is started decides how the API runs.
+  - The backend and the frontend are unchanged. The backend still runs alone, and the frontend still calls it over HTTP through `BACKEND_API_URL`.
+  - Replacing Streamlit, or deploying the backend separately, stays open.
+- **One API per process.**
+  - Streamlit's resource cache serializes concurrent first sessions.
+  - The listening socket is bound before the API starts, so even a start racing a "Clear cache" cannot run a second API; the loser reuses the winner's.
+- **Only our own API is reused.** It is reused only when this process started it and its health check names this service, version, and environment. Anything else on the port is refused, even an exact imitation.
+- **The separate solver worker is kept.** It is started with `spawn`, so it never inherits the app's threads. Memory and speed were left to point 7, which was set aside.
+- **`pyproject.toml` stays the source of truth.** `requirements.txt` is a copy of its runtime dependencies. The packaging configuration is unchanged.
+
+### Changes
+
+- `streamlit_app.py` (new, repository root):
+  - starts `create_app()` with uvicorn in a daemon thread on `127.0.0.1`, at `BACKEND_PORT`;
+  - waits until the API answers as this app's own;
+  - sets `BACKEND_API_URL` and calls the existing `render_app()`;
+  - runs nothing when imported, for example by the spawned solver worker as `__mp_main__`.
+- `requirements.txt` (new): the 12 pinned runtime dependencies from `pyproject.toml`.
+- Documentation:
+  - `docs/deployment.md` gains "Streamlit Community Cloud", covering the launcher, dependencies, and Secrets at the top level, and "Storage is temporary on Cloud";
+  - troubleshooting: a step for a missing saved scenario, and a known limitation;
+  - a README paragraph and a CHANGELOG section under 1.1.0.
+- Tests (new):
+  - `backend/tests/integration/test_streamlit_cloud_launcher.py` (11). It sits with the cross-package tests because the frontend boundary forbids backend imports.
+  - `backend/tests/unit/test_requirements_file.py` (3).
+
+### Verification
+
+| Check | Result | Evidence/notes |
+|---|---|---|
+| `python -m ruff format --check .` | PASS | |
+| `python -m ruff check .` | PASS | |
+| `python -m mypy backend frontend` | PASS | 178 source files. The launcher is checked through the test's import; a planted type error in it was reported. |
+| `python -m pytest -q` | PASS | 795 passed (781 + 11 + 3). |
+| `python scripts/validate_m0.py` | PASS | 672 checks. |
+| `python scripts/review_m2_payloads.py` | PASS | |
+| `python scripts/smoke_m1.py` | PASS | `DATABASE_PATH` set to a scratch file. |
+| `python scripts/validate_release.py` | PASS | No key in 238 scanned files. |
+| `python -m pip check` | PASS | |
+| Mutation checks | PASS | Six deliberate faults in the launcher, plus a changed version and a `-e .` line in `requirements.txt`, each made a test fail. Files restored. |
+| Real database untouched | PASS | Last written 2026-11-24 22:32, before this build. |
+
+The launcher tests cover:
+
+- one start on repeated calls, 8 concurrent sessions, and 8 racing starts that bypass the cache;
+- reuse after a cache clear, and refusal on a changed version or environment;
+- refusal of an imitation API on the port;
+- the entry file solving the sample over HTTP, with the worker started by `spawn` in a separate process;
+- the entry file imported as `__mp_main__` without side effects;
+- imports with the development install hidden, through Streamlit's own path setup;
+- the backend as its own process with Streamlit blocked;
+- `run_app.ps1` targets.
+
+### Manual checks
+
+Browser, scratch databases:
+
+- **`run_app.ps1`.** The sample solved to 1 of 6 truck-shifts, 216.0 km. Stopping Streamlit stopped the backend.
+- **`streamlit run streamlit_app.py`.**
+  - No API before the first page load.
+  - The same plan.
+  - A second session used the same API: one "Application startup complete".
+  - The API listened on `127.0.0.1:8000` inside the Streamlit process, and the solver ran in a spawned child.
+  - Stopping the app left no process behind.
+- **The Google key.** Both runs read the local `.env`, so the app showed "Google Maps configured". No Google call was made, because the sample's travel times are included.
+
+### Known issues
+
+- **Linux not yet tested.**
+  - Docker Desktop 4.43.1 did not start: stale socket files from 2025-07-06 in `%LOCALAPPDATA%\Docker\run` could not be removed.
+  - The project owner deferred the Docker tests (Python 3.12 on Debian 11, as on Cloud).
+- **The solver worker loads the launcher.** Under it, the worker imports the entry file again, and with it Streamlit and the frontend. That costs memory and slows the first solve (about 13 s against about 5 s). It also logs one harmless "missing ScriptRunContext" warning per worker start. Left to point 7.
+- **Storage on Cloud is temporary** (documented).
+- **A public app spends the owner's Google key.** Anyone who can open it can trigger billable Google calls. The project owner set this aside (point 6).
+- `.env` was not read or changed.
+
+### Gate status
+
+- All checks pass.
+- The change is committed on `streamlit-cloud`.
+- The tag `v1.1.0` still waits for acceptance and the Linux tests.
+
+### Next action
+
+- Run the launcher and full tests on Linux in Docker once Docker Desktop starts.
+- Deploy from `streamlit-cloud` on Streamlit Community Cloud, then accept Version 1.1 and tag `v1.1.0`.

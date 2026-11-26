@@ -119,6 +119,7 @@ The solve can take up to twice the time limit when not everything fits, because 
 1. Check `DATABASE_PATH` points to the expected database.
 2. Check the backend can read and write the database folder.
 3. Restore from a backup if the file was replaced (see [Backup and restore](backup_restore.md)).
+4. On Streamlit Community Cloud, storage is temporary: see [Storage is temporary on Cloud](deployment.md#storage-is-temporary-on-cloud).
 
 ### Export opens with warnings
 
@@ -171,4 +172,5 @@ Tighter time windows, longer distances, or many tags and route limits make the s
 - **No restore offer when the backend is down** at the moment the page reloads; the edits stay on the backend.
 - **One plant per scenario;** no location opening hours, driver breaks, or maximum stops per route (planned for a later version).
 - **Single site, single user.** SQLite suits one plant or team on one machine. For shared hosting, move persistence to a managed database behind the same repository interfaces.
+- **Temporary storage on Streamlit Community Cloud.** Saved scenarios, plans, drafts, and the address cache can be lost on a reboot, a redeploy, or after 12 hours without visitors. Download scenarios to keep them; see [Storage is temporary on Cloud](deployment.md#storage-is-temporary-on-cloud).
 - **Scenario size:** see above.

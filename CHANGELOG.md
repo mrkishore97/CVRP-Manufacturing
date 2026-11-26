@@ -36,6 +36,12 @@ Version 1.1 makes the optimizer a planner's tool: every input has a form, locati
 - Save asks before replacing another saved scenario; Save as and Duplicate never overwrite; Delete removes a scenario with its plans.
 - Unsaved edits are kept on the backend and offered back after a browser refresh.
 
+### Streamlit Community Cloud
+
+- A root `streamlit_app.py` runs the unchanged API and app in one process. It starts the API once, on a private loopback port, and reuses only its own. `run_app.ps1` and the separate starts are unchanged.
+- `requirements.txt` copies the runtime dependencies in `pyproject.toml`, the source of truth; a test keeps them equal.
+- Storage on Cloud is temporary; the deployment guide says what is lost and how to keep a scenario.
+
 ### Fixes and hardening
 
 - One version source: the health endpoint, OpenAPI, and the package all report `VERSION`.

@@ -84,6 +84,8 @@ The backend and the app can be started on their own, for example to watch the ba
 
 Health check: <http://127.0.0.1:8000/api/v1/health>. The API is documented at <http://127.0.0.1:8000/docs>.
 
+On Streamlit Community Cloud, the root `streamlit_app.py` runs both in one process, and Cloud installs `requirements.txt`. [Streamlit Community Cloud](docs/deployment.md#streamlit-community-cloud) covers where the key goes and why storage there is temporary.
+
 ## Architecture
 
 ```text

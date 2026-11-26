@@ -13,6 +13,8 @@ Streamlit frontend -> HTTP/JSON -> FastAPI backend -> domain/routing/solver/pers
 - Python 3.12, 64-bit
 - Local SQLite database
 - Backend and frontend running on the same workstation or Windows server
+- Or both in one process on Streamlit Community Cloud (see
+  [Streamlit Community Cloud](#streamlit-community-cloud))
 
 Linux hosting should work with equivalent commands, but Versions 1.0 and 1.1 have
 been validated on Windows.
@@ -60,6 +62,55 @@ Open `http://127.0.0.1:8501`.
 
 The script starts the backend as a hidden helper process and runs Streamlit in
 the current console. Stopping Streamlit stops the helper backend process.
+
+## Streamlit Community Cloud
+
+Streamlit Community Cloud runs a single `streamlit run` process, so it uses the root
+`streamlit_app.py` as its entry file.
+
+- **One process.** On the first page load, the launcher starts the same FastAPI app
+  in a background thread on `127.0.0.1`, at `BACKEND_PORT` (8000 by default). It
+  starts once per process and is not reachable from outside. The same pages then
+  call it over HTTP. The solver still runs in its own worker process.
+- **Nothing else changes.** The backend has no Streamlit dependency, and `run_app.ps1`
+  and the separate starts above work as before. The root file can also be tried
+  locally: `streamlit run streamlit_app.py`.
+- **Dependencies.** Cloud installs `requirements.txt`, a copy of the runtime
+  dependencies in `pyproject.toml`. `pyproject.toml` stays the source of truth, and a
+  test fails if the two differ. The project itself is not installed, because
+  Streamlit puts the entry file's folder on the import path. Choose Python 3.12 when
+  deploying.
+- **Settings and the Google key.** There is no `.env` on Cloud. Put settings in the
+  app's **Secrets**: under **Advanced settings** when deploying, or in the app's
+  settings later. Put them at the top level of the TOML, so that they become
+  environment variables; values under a `[section]` heading do not.
+
+```toml
+GOOGLE_MAPS_API_KEY = "your-backend-only-key"
+APP_ENV = "production"
+GEOCODE_REGION_CODE = "ca"
+```
+
+Never commit the key. `.env` and `.streamlit/secrets.toml` are ignored by git.
+
+### Storage is temporary on Cloud
+
+The SQLite database lives inside the app's container. Streamlit Community Cloud does
+not promise to keep files the app writes across:
+
+- a reboot;
+- a redeploy (every push to the deployed branch redeploys);
+- the sleep after 12 hours without visitors.
+
+Treat everything the app stores there as temporary:
+
+- **Your work.** Saved scenarios, plan history, kept unsaved edits, and the 30-day
+  address cache can disappear. To keep a scenario, download it from **Advanced JSON**
+  (**Download complete JSON** keeps the matched coordinates), and paste it back after
+  a restart.
+- **Travel times.** Google travel times are never stored (decision D6), so after every
+  restart they are calculated, and billed, again.
+- **No fix yet.** A persistent database is not part of Version 1.1.
 
 ## Recommended production settings
 
